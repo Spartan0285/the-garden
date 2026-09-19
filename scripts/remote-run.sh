@@ -15,7 +15,7 @@ SCP="scp -q -o ConnectTimeout=60"
 case "$host" in
 pbg4) SSH="$SSH -o HostName=192.168.68.151"; SCP="$SCP -o HostName=192.168.68.151" ;;
 tiger) # the QEMU guest: key and legacy algorithms as in the QEMU project's gssh.sh
-       K=/private/tmp/claude-501/-Users-adam-QEMU-Project/95480f2f-31f7-4a5b-b5b2-fceac18512f3/scratchpad/tiger_key
+       K=${POWEREMU_GUEST_KEY:-$HOME/.ssh/poweremu_guest}
        OPTS="-i $K -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o KexAlgorithms=+diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1 -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1"
        SSH="$SSH -p 2222 $OPTS"; SCP="$SCP -O -P 2222 $OPTS"
        host=adam@127.0.0.1 ;;

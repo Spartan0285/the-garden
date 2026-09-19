@@ -131,35 +131,70 @@ static OSType fileType(NSString *p)
     return [[a objectForKey:NSFileHFSTypeCode] unsignedLongValue];
 }
 
-/* First launchable thing under root: an .app bundle, else a classic APPL. */
-static NSString *findLaunchable(NSString *root, int depth)
+/* How likely a program is the one people mean by the title.  Helpers that
+ * ship next to the program (updaters, installers, Read Me viewers, network
+ * clients) lose to it; a name sharing a word with the title wins. */
+static int launchScore(NSString *path, NSString *title)
+{
+    NSString *n = [[[path lastPathComponent] stringByDeletingPathExtension] lowercaseString];
+    NSArray *helpers = [NSArray arrayWithObjects:@"update", @"install", @"uninstall", @"read me", @"readme",
+                                 @"patch", @"setup", @"battle.net", @"register", @"registration", @"help",
+                                 @"manual", @"license", @"remover", @"updater", @"launcher prefs", @"editor", nil];
+    NSArray *words = [[title ?: @"" lowercaseString] componentsSeparatedByString:@" "];
+    int score = 0;
+    unsigned i;
+    for (i = 0; i < [helpers count]; i++)
+        if ([n rangeOfString:[helpers objectAtIndex:i]].location != NSNotFound)
+            score -= 20;
+    for (i = 0; i < [words count]; i++) {
+        NSString *w = [words objectAtIndex:i];
+        if ([w length] >= 3 && [n rangeOfString:w].location != NSNotFound)
+            score += 10;
+    }
+    if ([[path pathExtension] isEqualToString:@"app"])
+        score += 2;             /* a native program beats a classic one alike */
+    return score;
+}
+
+static void collectLaunchables(NSString *root, int depth, NSMutableArray *out)
 {
     NSArray *c;
     unsigned i;
-    if ([[root pathExtension] isEqualToString:@"app"])
-        return root;
-    if (!isDir(root))
-        return fileType(root) == 'APPL' ? root : nil;
+    if ([[root pathExtension] isEqualToString:@"app"]) {
+        [out addObject:[NSArray arrayWithObjects:root, [NSNumber numberWithInt:depth], nil]];
+        return;
+    }
+    if (!isDir(root)) {
+        if (fileType(root) == 'APPL')
+            [out addObject:[NSArray arrayWithObjects:root, [NSNumber numberWithInt:depth], nil]];
+        return;
+    }
     if (depth > 3)
-        return nil;
+        return;
     c = visibleContents(root);
-    for (i = 0; i < [c count]; i++) {
-        NSString *p = [root stringByAppendingPathComponent:[c objectAtIndex:i]];
-        if ([[p pathExtension] isEqualToString:@"app"])
-            return p;
+    for (i = 0; i < [c count]; i++)
+        collectLaunchables([root stringByAppendingPathComponent:[c objectAtIndex:i]], depth + 1, out);
+}
+
+/* The program to open for this title: best name match, then shallowest. */
+static NSString *findLaunchableFor(NSString *root, NSString *title)
+{
+    NSMutableArray *all = [NSMutableArray array];
+    NSString *best = nil;
+    int bestScore = -1000, bestDepth = 99;
+    unsigned i;
+    collectLaunchables(root, 0, all);
+    for (i = 0; i < [all count]; i++) {
+        NSString *p = [[all objectAtIndex:i] objectAtIndex:0];
+        int d = [[[all objectAtIndex:i] objectAtIndex:1] intValue];
+        int sc = launchScore(p, title);
+        if (sc > bestScore || (sc == bestScore && d < bestDepth)) {
+            best = p;
+            bestScore = sc;
+            bestDepth = d;
+        }
     }
-    for (i = 0; i < [c count]; i++) {
-        NSString *p = [root stringByAppendingPathComponent:[c objectAtIndex:i]];
-        if (!isDir(p) && fileType(p) == 'APPL')
-            return p;
-    }
-    for (i = 0; i < [c count]; i++) {
-        NSString *p = [root stringByAppendingPathComponent:[c objectAtIndex:i]];
-        NSString *hit;
-        if (isDir(p) && (hit = findLaunchable(p, depth + 1)) != nil)
-            return hit;
-    }
-    return nil;
+    return best;
 }
 
 static NSString *safeName(NSString *s)
@@ -178,6 +213,8 @@ static NSString *safeName(NSString *s)
 - (void) changed:(GDInstallJob *)job;
 - (void) startDownload:(GDInstallJob *)job;
 - (void) saveLibrary;
+- (NSString *) attachImage:(NSString *)p;
+- (void) repairLaunchPaths;
 @end
 
 @implementation GDInstaller
@@ -341,9 +378,7 @@ static int compareVersions(NSArray *a, NSArray *b)
 
 - (GDInstallJob *) installUpdate:(NSDictionary *)u
 {
-    NSDictionary *e = [u objectForKey:@"entry"];
     GDInstallJob *job = [self installFile:[u objectForKey:@"file"] ofItem:[u objectForKey:@"detail"]];
-    job->replaces = [[e objectForKey:@"installed"] copy];
     [self recomputeUpdates:nil];
     return job;
 }
@@ -434,9 +469,33 @@ static int compareVersions(NSArray *a, NSArray *b)
     speeds = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"GDMirrorSpeeds"] mutableCopy]
              ?: [[NSMutableDictionary alloc] init];
     updates = [[NSMutableArray alloc] init];
+    [self repairLaunchPaths];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(recomputeUpdates:)
                                                  name:GDDetailLoadedNotification object:nil];
     return self;
+}
+
+/* Entries made by earlier versions may point Open at a helper (an updater
+ * found first) or at nothing; choose again with the title in mind. */
+- (void) repairLaunchPaths
+{
+    BOOL changed = NO;
+    unsigned i;
+    for (i = 0; i < [library count]; i++) {
+        NSMutableDictionary *e = [[[library objectAtIndex:i] mutableCopy] autorelease];
+        NSArray *inst = [e objectForKey:@"installed"];
+        NSString *old = [e objectForKey:@"launch"], *best;
+        if ([inst count] == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:[inst objectAtIndex:0]])
+            continue;
+        best = findLaunchableFor([inst objectAtIndex:0], [e objectForKey:@"title"]);
+        if (best && ![best isEqualToString:old]) {
+            [e setObject:best forKey:@"launch"];
+            [library replaceObjectAtIndex:i withObject:e];
+            changed = YES;
+        }
+    }
+    if (changed)
+        [library writeToFile:libraryPath atomically:YES];
 }
 
 - (NSArray *) jobs { return jobs; }
@@ -565,6 +624,10 @@ static NSString *megabytes(double b)
         [old release];
     }
     job->mirrorOrder = [[self orderMirrors:[f mirrors]] retain];
+    /* One copy per title, as in the App Store: getting it again (or another
+     * of its files) replaces what is installed, which goes to the Trash. */
+    if ([self libraryEntryForPath:[d path]])
+        job->replaces = [[[self libraryEntryForPath:[d path]] objectForKey:@"installed"] copy];
     [jobs addObject:job];
 
     /* Room for the download, what it expands to, and the installed copy. */
@@ -910,6 +973,35 @@ static BOOL isDiskImage(NSString *p)
     }
 
     dest = [self applicationsFolderFor:job];
+    /* Nothing to run here, only disk images (a floppy set, say): open each
+     * and copy what is on it, next to the images. */
+    if ([apps count] == 0 && findLaunchableFor(root, [job->item title]) == nil) {
+        NSMutableArray *images = [NSMutableArray array];
+        for (i = 0; i < [c count]; i++)
+            if (isDiskImage([root stringByAppendingPathComponent:[c objectAtIndex:i]]))
+                [images addObject:[c objectAtIndex:i]];
+        if ([images count]) {
+            NSString *folder;
+            [self job:job state:GDJobInstalling
+                   status:[NSString stringWithFormat:@"Installing in %@...", [dest lastPathComponent]]];
+            folder = [self copy:root into:dest as:safeName([job->item title])];
+            if (folder == nil)
+                return NO;
+            [images sortUsingSelector:@selector(compare:)];
+            for (i = 0; i < [images count]; i++) {
+                NSString *img = [root stringByAppendingPathComponent:[images objectAtIndex:i]];
+                NSString *mount = [self attachImage:img];
+                if (mount) {
+                    [self copy:mount into:folder as:[[images objectAtIndex:i] stringByDeletingPathExtension]];
+                    runTask(@"/usr/bin/hdiutil", [NSArray arrayWithObjects:@"detach", mount, @"-force", nil], NULL);
+                }
+            }
+            [job->installed addObject:folder];
+            job->launchPath = [findLaunchableFor(folder, [job->item title]) retain];
+            job->revealPath = [folder retain];
+            return YES;
+        }
+    }
     [self job:job state:GDJobInstalling
            status:[NSString stringWithFormat:@"Installing in %@...", [dest lastPathComponent]]];
     if ([apps count] == 1 && [apps count] + docs == [c count]) {
@@ -920,9 +1012,39 @@ static BOOL isDiskImage(NSString *p)
     if (copied == nil)
         return NO;
     [job->installed addObject:copied];
-    job->launchPath = [findLaunchable(copied, 0) retain];
+    job->launchPath = [findLaunchableFor(copied, [job->item title]) retain];
     job->revealPath = [copied retain];
     return YES;
+}
+
+/* Mount an image read-only, out of sight; old floppy images (.dsk, .image)
+ * are often headerless raw disks, which hdiutil opens only when told. */
+- (NSString *) attachImage:(NSString *)p
+{
+    NSArray *base = [NSArray arrayWithObjects:@"attach", @"-nobrowse", @"-noautoopen", @"-readonly",
+                              @"-noverify", @"-noautofsck", @"-plist", nil];
+    int attempt;
+    for (attempt = 0; attempt < 2; attempt++) {
+        NSMutableArray *args = [NSMutableArray arrayWithArray:base];
+        NSString *out;
+        NSDictionary *plist;
+        NSArray *ents;
+        unsigned i;
+        int st;
+        if (attempt == 1)
+            [args addObjectsFromArray:[NSArray arrayWithObjects:@"-imagekey",
+                                          @"diskimage-class=CRawDiskImage", nil]];
+        [args addObject:p];
+        out = runTask(@"/usr/bin/hdiutil", args, &st);
+        plist = [out propertyList];
+        ents = [plist isKindOfClass:[NSDictionary class]] ? [plist objectForKey:@"system-entities"] : nil;
+        for (i = 0; i < [ents count]; i++) {
+            NSString *mp = [[ents objectAtIndex:i] objectForKey:@"mount-point"];
+            if (mp)
+                return mp;
+        }
+    }
+    return nil;
 }
 
 - (void) postProcess:(GDInstallJob *)job
@@ -955,22 +1077,9 @@ static BOOL isDiskImage(NSString *p)
     }
 
     if (isDiskImage(p)) {
-        int st;
-        NSString *out;
-        NSDictionary *plist;
-        NSArray *ents;
         NSString *mount = nil;
-        unsigned i;
         [self job:job state:GDJobUnpacking status:@"Opening disk image..."];
-        out = runTask(@"/usr/bin/hdiutil", [NSArray arrayWithObjects:@"attach", @"-nobrowse",
-                          @"-noautoopen", @"-readonly", @"-noverify", @"-noautofsck", @"-plist", p, nil], &st);
-        plist = [out propertyList];
-        ents = [plist isKindOfClass:[NSDictionary class]] ? [plist objectForKey:@"system-entities"] : nil;
-        for (i = 0; i < [ents count]; i++) {
-            NSString *mp = [[ents objectAtIndex:i] objectForKey:@"mount-point"];
-            if (mp)
-                mount = mp;
-        }
+        mount = [self attachImage:p];
         if (mount == nil) {
             [self job:job state:GDJobFailed
                    status:@"Could not open the disk image. It is in the Downloads folder."];
@@ -1017,10 +1126,47 @@ static BOOL isDiskImage(NSString *p)
     }
 }
 
+/* After an update or reinstall the new copy was made beside the old one
+ * ("Name 2"); with the old one in the Trash, give it the original name. */
+- (void) takeOriginalNames:(GDInstallJob *)job
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    unsigned i, k;
+    for (i = 0; i < [job->installed count]; i++) {
+        NSString *now = [job->installed objectAtIndex:i];
+        for (k = 0; k < [job->replaces count]; k++) {
+            NSString *was = [job->replaces objectAtIndex:k];
+            NSString *base = [[was lastPathComponent] stringByDeletingPathExtension];
+            NSString *nb = [[now lastPathComponent] stringByDeletingPathExtension];
+            if (![[was stringByDeletingLastPathComponent] isEqualToString:[now stringByDeletingLastPathComponent]] ||
+                ![nb hasPrefix:[base stringByAppendingString:@" "]] || [fm fileExistsAtPath:was] ||
+                ![[was pathExtension] isEqualToString:[now pathExtension]])
+                continue;
+            if (rename([now fileSystemRepresentation], [was fileSystemRepresentation]) == 0) {
+                /* keep the recorded paths pointing at the renamed copy */
+                if (job->launchPath && [job->launchPath hasPrefix:now]) {
+                    NSString *l = [was stringByAppendingString:[job->launchPath substringFromIndex:[now length]]];
+                    [job->launchPath release];
+                    job->launchPath = [l retain];
+                }
+                if (job->revealPath && [job->revealPath hasPrefix:now]) {
+                    NSString *r = [was stringByAppendingString:[job->revealPath substringFromIndex:[now length]]];
+                    [job->revealPath release];
+                    job->revealPath = [r retain];
+                }
+                [job->installed replaceObjectAtIndex:i withObject:was];
+            }
+            break;
+        }
+    }
+}
+
 - (void) finish:(GDInstallJob *)job
 {
-    if (job->replaces)
+    if (job->replaces) {
         [self trashPaths:job->replaces keeping:job->installed];
+        [self takeOriginalNames:job];
+    }
     if ([[job->launchPath pathExtension] isEqualToString:@"app"])
         LSRegisterURL((CFURLRef)[NSURL fileURLWithPath:job->launchPath], true);
     NSDictionary *old = [self libraryEntryForPath:[job->item path]];

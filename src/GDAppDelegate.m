@@ -141,7 +141,12 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
             GDFile *f = nil;
             if (det && [get isEqualToString:@"best"])
                 [GDCompat verdictForItem:det bestFile:&f];
-            else if (det && idx < (int)[[det files] count])
+            else if (det && [get rangeOfString:@"."].location != NSNotFound) {
+                unsigned k;                     /* a file name */
+                for (k = 0; k < [[det files] count]; k++)
+                    if ([[[[det files] objectAtIndex:k] name] isEqualToString:get])
+                        f = [[det files] objectAtIndex:k];
+            } else if (det && idx < (int)[[det files] count])
                 f = [[det files] objectAtIndex:idx];
             if (f) {
                 [[GDInstaller sharedInstaller] installFile:f ofItem:det];
