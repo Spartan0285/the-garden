@@ -24,6 +24,9 @@
     NSString *searchToken;
     NSWindow *shotWindow;
     BOOL onlyRunnable;
+    NSImage *dockIcon;
+    double lastDockDraw;
+    BOOL dockDrawn;
 }
 - (void) showWindow;
 - (NSWindow *) window;
@@ -38,6 +41,7 @@
 - (IBAction) showGames:(id)sender;
 - (IBAction) showCategories:(id)sender;
 - (IBAction) showLibrary:(id)sender;
+- (IBAction) showUpdates:(id)sender;
 - (IBAction) focusSearch:(id)sender;
 - (IBAction) reloadPage:(id)sender;
 - (IBAction) toggleOnlyRunnable:(id)sender;

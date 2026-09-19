@@ -61,6 +61,7 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     addItem(m, @"Games", @selector(showGames:), @"3");
     addItem(m, @"Categories", @selector(showCategories:), @"4");
     addItem(m, @"Library", @selector(showLibrary:), @"5");
+    addItem(m, @"Updates", @selector(showUpdates:), @"6");
     [m addItem:[NSMenuItem separatorItem]];
     addItem(m, @"Back", @selector(goBack:), @"[");
     addItem(m, @"Forward", @selector(goForward:), @"]");
@@ -98,6 +99,7 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         else if ([debugPage isEqualToString:@"games"]) [store showGames:nil];
         else if ([debugPage isEqualToString:@"categories"]) [store showCategories:nil];
         else if ([debugPage isEqualToString:@"library"]) [store showLibrary:nil];
+        else if ([debugPage isEqualToString:@"updates"]) [store showUpdates:nil];
     }
     if ([d stringForKey:@"GDDebugSnapshotPath"])
         debugTimer = [[NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(debugTick:)
@@ -119,8 +121,19 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         debugQuiet = ([store pendingRequests] == 0 && [[GDCatalog sharedCatalog] pendingLoads] == 0 &&
                       active == 0 && (get == nil || debugInstallStarted)) ? debugQuiet + 1 : 0;
     }
+    /* Optional: Add to Dock for the first Library entry. */
+    if ([d boolForKey:@"GDDebugDock"] && ticks == 4 && [[[GDInstaller sharedInstaller] library] count])
+        NSLog(@"The Garden: addToDock -> %d",
+              [[GDInstaller sharedInstaller] addToDock:[[[GDInstaller sharedInstaller] library] objectAtIndex:0]]);
+    /* Optional: press Update on the first available update. */
+    if ([get isEqualToString:@"update"] && ticks >= 6 && !debugInstallStarted &&
+        [[[GDInstaller sharedInstaller] updates] count]) {
+        [[GDInstaller sharedInstaller] installUpdate:[[[GDInstaller sharedInstaller] updates] objectAtIndex:0]];
+        debugInstallStarted = YES;
+        debugQuiet = 0;
+    }
     /* Optional: start the install of file N of the item page once loaded. */
-    if (get && ticks >= 6 && !debugInstallStarted) {
+    if (get && ![get isEqualToString:@"update"] && ticks >= 6 && !debugInstallStarted) {
         NSView *v = [[[store window] contentView] documentView];
         if ([v respondsToSelector:@selector(detail)]) {
             GDItemDetail *det = [v performSelector:@selector(detail)];
@@ -154,6 +167,9 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         [view cacheDisplayInRect:[view bounds] toBitmapImageRep:bm];
         [[bm representationUsingType:NSPNGFileType properties:nil]
             writeToFile:[d stringForKey:@"GDDebugSnapshotPath"] atomically:YES];
+        /* and the Dock icon as it is drawn now (badge, progress) */
+        [[[NSApp applicationIconImage] TIFFRepresentation]
+            writeToFile:[[d stringForKey:@"GDDebugSnapshotPath"] stringByAppendingString:@".icon.tiff"] atomically:YES];
         {
             NSView *doc = [(NSScrollView *)[[store window] contentView] documentView];
             NSLog(@"The Garden: snapshot written after %ds; doc %@ frame %@ visible %@ subviews %d",

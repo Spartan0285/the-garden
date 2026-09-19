@@ -69,6 +69,8 @@ NSString *GDMD5OfFile(NSString *path)
     images = [[NSMutableDictionary alloc] init];
     imageLoads = [[NSMutableSet alloc] init];
     imageLRU = [[NSMutableArray alloc] init];
+    refreshing = [[NSMutableSet alloc] init];
+    [GDHTTPRequest purgePageCacheOlderThan:30 * 86400];
     caches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
     cacheDir = [[[[caches objectAtIndex:0] stringByAppendingPathComponent:@"The Garden"]
                     stringByAppendingPathComponent:@"Pictures"] retain];
@@ -99,6 +101,9 @@ NSString *GDMD5OfFile(NSString *path)
     r = [GDHTTPRequest requestWithURL:[GDGarden itemURL:path]];
     [r setUserInfo:path];
     [r setTag:1];
+    /* Item pages change rarely; download links are re-fetched by Get. */
+    [r setCacheTTL:[refreshing containsObject:path] ? 1 : 3 * 86400];
+    [refreshing removeObject:path];
     [r setDelegate:self];
     [r start];
 }
@@ -113,6 +118,7 @@ NSString *GDMD5OfFile(NSString *path)
 
 - (void) refreshDetailForPath:(NSString *)path
 {
+    [refreshing addObject:path];
     [self startDetail:path];
 }
 

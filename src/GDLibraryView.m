@@ -6,6 +6,7 @@
 
 #define MARGIN 24
 #define ROW_H 64
+#define ENTRY_H 88
 #define BTN_W 116
 
 @implementation GDLibraryView
@@ -22,6 +23,9 @@
                                                      name:GDLibraryChangedNotification object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(imageChanged:)
                                                      name:GDImageLoadedNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(changed:)
+                                                     name:GDUpdatesChangedNotification object:nil];
+        docked = [[NSMutableSet alloc] init];
         [self reload];
     }
     return self;
@@ -32,12 +36,14 @@
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [controls release];
     [rows release];
+    [docked release];
     [super dealloc];
 }
 
 - (BOOL) isFlipped { return YES; }
 - (BOOL) isOpaque { return YES; }
 - (void) setDelegate:(id)d { delegate = d; }
+- (void) setShowsUpdates:(BOOL)f { showsUpdates = f; [self reload]; }
 - (void) imageChanged:(NSNotification *)n { [self setNeedsDisplay:YES]; }
 
 - (void) changed:(NSNotification *)n
@@ -90,6 +96,22 @@
     [controls removeAllObjects];
     [rows removeAllObjects];
 
+    if (showsUpdates) {
+        NSArray *ups = [inst updates];
+        if ([ups count] > 1)
+            [self button:@"Update All" at:NSMakeRect(w - MARGIN - BTN_W, 22, BTN_W, 24)
+                  action:@selector(updateAll:) tag:0];
+        for (k = 0; k < [ups count]; k++) {
+            NSRect r = NSMakeRect(MARGIN, y, w - 2 * MARGIN, ROW_H + 8);
+            [self button:@"Update" at:NSMakeRect(NSMaxX(r) - BTN_W - 6, y + 24, BTN_W, 24)
+                  action:@selector(updateOne:) tag:k];
+            [rows addObject:[NSArray arrayWithObjects:@"update", [ups objectAtIndex:k], [NSValue valueWithRect:r], nil]];
+            y += ROW_H + 16;
+        }
+        lib = [NSArray array];
+        jobs = [NSArray array];
+    }
+
     if ([jobs count]) {
         y += 4;
         for (i = (int)[jobs count] - 1; i >= 0; i--) {
@@ -130,14 +152,20 @@
 
     for (k = 0; k < [lib count]; k++) {
         NSDictionary *e = [lib objectAtIndex:k];
-        NSRect r = NSMakeRect(MARGIN, y, w - 2 * MARGIN, ROW_H);
+        NSRect r = NSMakeRect(MARGIN, y, w - 2 * MARGIN, ENTRY_H);
         float bx = NSMaxX(r) - BTN_W - 6;
-        if ([e objectForKey:@"launch"])
+        NSString *launch = [e objectForKey:@"launch"];
+        if (launch) {
+            NSButton *dock;
             [self button:@"Open" at:NSMakeRect(bx, y + 4, BTN_W, 22) action:@selector(openEntry:) tag:k];
-        [self button:@"Show in Finder" at:NSMakeRect(bx, y + 22, BTN_W, 22) action:@selector(revealEntry:) tag:k];
-        [self button:@"Move to Trash" at:NSMakeRect(bx, y + 40, BTN_W, 22) action:@selector(trashEntry:) tag:k];
+            dock = [self button:[docked containsObject:launch] ? @"In the Dock" : @"Add to Dock"
+                             at:NSMakeRect(bx, y + 24, BTN_W, 22) action:@selector(dockEntry:) tag:k];
+            [dock setEnabled:![docked containsObject:launch]];
+        }
+        [self button:@"Show in Finder" at:NSMakeRect(bx, y + 44, BTN_W, 22) action:@selector(revealEntry:) tag:k];
+        [self button:@"Move to Trash" at:NSMakeRect(bx, y + 64, BTN_W, 22) action:@selector(trashEntry:) tag:k];
         [rows addObject:[NSArray arrayWithObjects:@"entry", e, [NSValue valueWithRect:r], nil]];
-        y += ROW_H + 8;
+        y += ENTRY_H + 8;
     }
     h = y + 60;
     if ([self enclosingScrollView])
@@ -179,8 +207,12 @@ static NSRect titleRect(NSRect row)
 
 - (NSString *) pathForRow:(NSArray *)row
 {
-    return [[row objectAtIndex:0] isEqualToString:@"job"]
-        ? [[[row objectAtIndex:1] item] path] : [[row objectAtIndex:1] objectForKey:@"path"];
+    NSString *kind = [row objectAtIndex:0];
+    if ([kind isEqualToString:@"job"])
+        return [[[row objectAtIndex:1] item] path];
+    if ([kind isEqualToString:@"update"])
+        return [[[row objectAtIndex:1] objectForKey:@"entry"] objectForKey:@"path"];
+    return [[row objectAtIndex:1] objectForKey:@"path"];
 }
 
 - (void) drawThumb:(NSString *)url title:(NSString *)t in:(NSRect)r
@@ -204,6 +236,52 @@ static NSRect titleRect(NSRect row)
 
     [GDBackgroundColor() set];
     NSRectFill(dirty);
+    if (showsUpdates) {
+        unsigned n = (unsigned)[[inst updates] count];
+        GDDrawText(@"Updates", NSMakeRect(MARGIN, 22, w - 2 * MARGIN, 26),
+                   [NSFont boldSystemFontOfSize:19], [NSColor blackColor], YES);
+        if (n == 0)
+            GDDrawText([[inst library] count] ? @"All the software you got from the Garden is up to date."
+                                              : @"Software you get from the Garden is checked for newer versions here.",
+                       NSMakeRect(MARGIN, 64, w - 2 * MARGIN, 20), [NSFont systemFontOfSize:12],
+                       GDSubtleTextColor(), YES);
+        for (i = 0; i < [rows count]; i++) {
+            NSArray *row = [rows objectAtIndex:i];
+            NSDictionary *u = [row objectAtIndex:1], *e = [u objectForKey:@"entry"];
+            GDFile *f = [u objectForKey:@"file"];
+            NSRect r = [[row objectAtIndex:2] rectValue];
+            NSImage *icon = [inst iconForEntry:e];
+            [[NSColor whiteColor] set];
+            [GDRoundRect(r, 6) fill];
+            [[NSColor colorWithCalibratedWhite:0.86 alpha:1] set];
+            [GDRoundRect(NSInsetRect(r, 0.5, 0.5), 6) stroke];
+            if (icon)
+                GDDrawImageFitted(icon, NSMakeRect(r.origin.x + 16, r.origin.y + 12, 48, 48), NO);
+            else
+                {
+                /* The installed program's own icon; the Garden screenshot if none. */
+                NSImage *icon = [inst iconForEntry:e];
+                if (icon)
+                    GDDrawImageFitted(icon, NSMakeRect(r.origin.x + 12, r.origin.y + 12, 56, 56), NO);
+                else
+                    [self drawThumb:[e objectForKey:@"thumb"] title:[e objectForKey:@"title"] in:thumbRect(r)];
+            }
+            GDDrawText([e objectForKey:@"title"], titleRect(r), [NSFont boldSystemFontOfSize:12],
+                       [NSColor blackColor], YES);
+            [linkText() drawInRect:linkRect(r) withAttributes:linkAttrs()];
+            GDDrawText([NSString stringWithFormat:@"Installed: %@", [e objectForKey:@"file"]],
+                       NSMakeRect(r.origin.x + 84, r.origin.y + 26, r.size.width - 220, 14),
+                       [NSFont systemFontOfSize:10], GDSubtleTextColor(), YES);
+            GDDrawText([NSString stringWithFormat:@"New: %@  %@  %@", [f name], [f sizeText] ?: @"",
+                           [f date] ?: @""],
+                       NSMakeRect(r.origin.x + 84, r.origin.y + 42, r.size.width - 220, 14),
+                       [NSFont boldSystemFontOfSize:10], GDBadgeColor(GDVerdictNative), YES);
+            GDDrawText(@"Your current copy moves to the Trash once the update is installed.",
+                       NSMakeRect(r.origin.x + 84, r.origin.y + 58, r.size.width - 220, 14),
+                       [NSFont systemFontOfSize:9], GDSubtleTextColor(), YES);
+        }
+        return;
+    }
     GDDrawText(anyJobs ? @"Downloads" : @"Installed", NSMakeRect(MARGIN, 22, w - 2 * MARGIN, 26),
                [NSFont boldSystemFontOfSize:19], [NSColor blackColor], YES);
     if (!anyJobs)
@@ -239,7 +317,14 @@ static NSRect titleRect(NSRect row)
                            [NSFont boldSystemFontOfSize:19], [NSColor blackColor], YES);
                 drewInstalledHead = YES;
             }
-            [self drawThumb:[e objectForKey:@"thumb"] title:[e objectForKey:@"title"] in:thumbRect(r)];
+            {
+                /* The installed program's own icon; the Garden screenshot if none. */
+                NSImage *icon = [inst iconForEntry:e];
+                if (icon)
+                    GDDrawImageFitted(icon, NSMakeRect(r.origin.x + 12, r.origin.y + 12, 56, 56), NO);
+                else
+                    [self drawThumb:[e objectForKey:@"thumb"] title:[e objectForKey:@"title"] in:thumbRect(r)];
+            }
             GDDrawText([e objectForKey:@"title"], titleRect(r), [NSFont boldSystemFontOfSize:12],
                        [NSColor blackColor], YES);
             [linkText() drawInRect:linkRect(r) withAttributes:linkAttrs()];
@@ -319,6 +404,33 @@ static NSRect titleRect(NSRect row)
     if (p)
         [[NSWorkspace sharedWorkspace] selectFile:p inFileViewerRootedAtPath:@""];
 }
+- (void) updateOne:(id)s
+{
+    NSArray *ups = [[GDInstaller sharedInstaller] updates];
+    int t = [s tag];
+    if (t < (int)[ups count])
+        [[GDInstaller sharedInstaller] installUpdate:[ups objectAtIndex:t]];
+}
+
+- (void) updateAll:(id)s
+{
+    NSArray *ups = [[[[GDInstaller sharedInstaller] updates] copy] autorelease];
+    unsigned i;
+    for (i = 0; i < [ups count]; i++)
+        [[GDInstaller sharedInstaller] installUpdate:[ups objectAtIndex:i]];
+}
+
+- (void) dockEntry:(id)s
+{
+    NSDictionary *e = [self entryFor:s];
+    if (e && [[GDInstaller sharedInstaller] addToDock:e]) {
+        [docked addObject:[e objectForKey:@"launch"]];
+        [self reload];
+    } else {
+        NSBeep();
+    }
+}
+
 - (void) openEntry:(id)s
 {
     NSString *p = [[self entryFor:s] objectForKey:@"launch"];

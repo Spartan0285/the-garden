@@ -2,6 +2,7 @@
 #import "GDCatalog.h"
 #import "GDInstaller.h"
 #import "GDStyle.h"
+#import "GDHTTP.h"
 #include <math.h>
 
 #define LEFT_X 28
@@ -9,10 +10,28 @@
 #define RIGHT_X (LEFT_X + LEFT_W + 32)
 #define SHOT_W 220
 #define SHOT_H 150
+#define MINI_W 124
+#define MINI_H 150
+#define REVIEWS_SHOWN 3
 
 @interface GDItemView (Private)
 - (void) rebuild;
+- (float) layoutExtras:(float)width;
+- (void) loadExtras;
+- (void) drawExtras:(float)w;
 @end
+
+static NSDictionary *textAttrs(NSFont *f, NSColor *c)
+{
+    return [NSDictionary dictionaryWithObjectsAndKeys:f, NSFontAttributeName, c, NSForegroundColorAttributeName, nil];
+}
+
+static float textHeight(NSString *s, NSFont *f, float w)
+{
+    NSAttributedString *a = [[[NSAttributedString alloc] initWithString:s ?: @""
+                                                              attributes:textAttrs(f, [NSColor blackColor])] autorelease];
+    return ceil([a boundingRectWithSize:NSMakeSize(w, 1.0e7) options:NSStringDrawingUsesLineFragmentOrigin].size.height);
+}
 
 @implementation GDItemView
 
@@ -24,6 +43,8 @@
     summary = [s retain];
     shotRects = [[NSMutableArray alloc] init];
     fileButtons = [[NSMutableArray alloc] init];
+    extraRequests = [[NSMutableArray alloc] init];
+    links = [[NSMutableArray alloc] init];
     [self setAutoresizingMask:NSViewWidthSizable];
 
     getButton = [[NSButton alloc] initWithFrame:NSMakeRect(LEFT_X, 0, LEFT_W, 32)];
@@ -63,7 +84,16 @@
 
 - (void) dealloc
 {
+    unsigned k;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    for (k = 0; k < [extraRequests count]; k++) {
+        [[extraRequests objectAtIndex:k] setDelegate:nil];
+        [[extraRequests objectAtIndex:k] cancel];
+    }
+    [extraRequests release];
+    [links release];
+    [moreByAuthor release];
+    [related release];
     [path release]; [summary release]; [detail release];
     [shotRects release]; [descView release]; [getButton release]; [bar release];
     [fileButtons release];
@@ -178,6 +208,11 @@
         [self addSubview:b];
         [fileButtons addObject:b];
         y += 62;
+    }
+    extrasTop = y + 14;
+    if (detail) {
+        [self loadExtras];
+        y = extrasTop + [self layoutExtras:rw];
     }
     h = MAX(y + 30, 28 + 150 + 16 + 32 + 30 + 260);
     {
@@ -339,12 +374,237 @@
                        [NSFont systemFontOfSize:9], GDSubtleTextColor(), YES);
         y += 62;
     }
+    [links removeAllObjects];
+    if (detail)
+        [self drawExtras:rw];
+
+    /* installed: the program's own icon on the picture */
+    {
+        NSDictionary *entry = [[GDInstaller sharedInstaller] libraryEntryForPath:path];
+        NSImage *icon = entry ? [[GDInstaller sharedInstaller] iconForEntry:entry] : nil;
+        if (icon) {
+            NSRect ir = NSMakeRect(NSMaxX(pic) - 70, NSMaxY(pic) - 70, 62, 62);
+            [[NSColor colorWithCalibratedWhite:1 alpha:0.9] set];
+            [GDRoundRect(NSInsetRect(ir, -4, -4), 12) fill];
+            GDDrawImageFitted(icon, ir, NO);
+        }
+    }
+}
+
+/* -------------------------------------------------- reviews and more */
+
+- (void) loadExtras
+{
+    NSString *paths[2];
+    int k;
+    if ([extraRequests count] || detail == nil)
+        return;
+    paths[0] = [detail authorPath];
+    paths[1] = [detail categoryPath];
+    for (k = 0; k < 2; k++) {
+        GDHTTPRequest *r;
+        if ([paths[k] length] == 0)
+            continue;
+        r = [GDHTTPRequest requestWithURL:[GDGarden listURLForSection:[detail section] selector:paths[k] page:0]];
+        [r setTag:k];
+        [r setDelegate:self];
+        [r setCacheTTL:86400];
+        [extraRequests addObject:r];
+        [r start];
+    }
+}
+
+- (void) httpRequestDidFinish:(GDHTTPRequest *)r
+{
+    NSMutableArray *items = [NSMutableArray array];
+    GDListing *L = [r error] ? nil : [GDGarden parseListing:[r data]];
+    unsigned k;
+    for (k = 0; k < [[L items] count]; k++) {
+        GDItem *it = [[L items] objectAtIndex:k];
+        if (![[it path] isEqualToString:path])
+            [items addObject:it];
+    }
+    if ([r tag] == 0) {
+        [moreByAuthor release];
+        moreByAuthor = [items retain];
+    } else {
+        /* The description's own "see also" links first, then the category. */
+        NSMutableArray *rel = [NSMutableArray arrayWithArray:[detail seeAlso]];
+        NSMutableSet *seen = [NSMutableSet set];
+        for (k = 0; k < [rel count]; k++)
+            [seen addObject:[[rel objectAtIndex:k] path]];
+        for (k = 0; k < [items count]; k++)
+            if (![seen containsObject:[[items objectAtIndex:k] path]])
+                [rel addObject:[items objectAtIndex:k]];
+        [related release];
+        related = [rel retain];
+    }
+    [self rebuild];
+}
+
+- (NSArray *) shownReviews
+{
+    NSArray *all = [detail reviews];
+    if (showAllReviews || [all count] <= REVIEWS_SHOWN)
+        return all;
+    return [all subarrayWithRange:NSMakeRange(0, REVIEWS_SHOWN)];
+}
+
+- (int) miniColumns:(float)w
+{
+    return MAX(1, (int)((w + 14) / (MINI_W + 14)));
+}
+
+/* Height of everything below the downloads, for the given column width. */
+- (float) layoutExtras:(float)w
+{
+    float h = 0;
+    NSArray *rv = [self shownReviews];
+    unsigned k;
+    h += 34 + 26;                                   /* heading + rating line */
+    if ([[detail reviews] count] == 0)
+        h += 22;
+    for (k = 0; k < [rv count]; k++)
+        h += 18 + textHeight([[rv objectAtIndex:k] objectForKey:@"text"], [NSFont systemFontOfSize:11], w) + 16;
+    if ([[detail reviews] count] > REVIEWS_SHOWN)
+        h += 22;
+    if ([moreByAuthor count])
+        h += 16 + 30 + MINI_H;
+    if ([related count])
+        h += 16 + 30 + MINI_H;
+    return h;
+}
+
+- (void) link:(NSRect)r kind:(NSString *)kind object:(id)o
+{
+    [links addObject:[NSArray arrayWithObjects:[NSValue valueWithRect:r], kind, o ?: @"", nil]];
+}
+
+- (void) drawMini:(GDItem *)it in:(NSRect)r
+{
+    GDCatalog *cat = [GDCatalog sharedCatalog];
+    NSString *thumb = [it thumbURL] ?: [[cat detailForPath:[it path]] thumbURL];
+    NSImage *img = [cat imageForURL:thumb];
+    NSRect pic = NSMakeRect(r.origin.x, r.origin.y, r.size.width, 82);
+    BOOL known;
+    GDVerdict v = [cat verdictForPath:[it path] known:&known];
+    [NSGraphicsContext saveGraphicsState];
+    [GDRoundRect(pic, 6) addClip];
+    if (img)
+        GDDrawImageFitted(img, pic, YES);
+    else
+        GDDrawPlaceholder(pic, [it title]);
+    [NSGraphicsContext restoreGraphicsState];
+    GDDrawText([it title], NSMakeRect(r.origin.x, NSMaxY(pic) + 5, r.size.width, 30),
+               [NSFont boldSystemFontOfSize:10], [NSColor blackColor], NO);
+    GDDrawText([it year] ?: ([it category] ?: @""), NSMakeRect(r.origin.x, NSMaxY(pic) + 33, r.size.width, 13),
+               [NSFont systemFontOfSize:9], GDSubtleTextColor(), YES);
+    GDDrawBadge(NSMakeRect(r.origin.x, NSMaxY(r) - 14, r.size.width, 12), v, known);
+    [self link:r kind:@"item" object:it];
+}
+
+- (float) drawShelf:(NSString *)title items:(NSArray *)items y:(float)y width:(float)w
+         listing:(NSDictionary *)listing
+{
+    int cols = [self miniColumns:w], k;
+    NSDictionary *ha = textAttrs([NSFont boldSystemFontOfSize:14], [NSColor blackColor]);
+    NSString *more = GDU("See All \xE2\x80\xBA");
+    NSDictionary *la = textAttrs([NSFont systemFontOfSize:11], GDAccentColor());
+    NSSize ms = [more sizeWithAttributes:la];
+    y += 16;
+    [title drawInRect:NSMakeRect(RIGHT_X, y, w - ms.width - 20, 20) withAttributes:ha];
+    if (listing) {
+        NSRect mr = NSMakeRect(RIGHT_X + w - ms.width, y + 3, ms.width, ms.height);
+        [more drawInRect:mr withAttributes:la];
+        [self link:mr kind:@"listing" object:listing];
+    }
+    y += 30;
+    for (k = 0; k < (int)[items count] && k < cols; k++)
+        [self drawMini:[items objectAtIndex:k]
+                    in:NSMakeRect(RIGHT_X + k * (MINI_W + 14), y, MINI_W, MINI_H - 10)];
+    return y + MINI_H;
+}
+
+- (void) drawExtras:(float)w
+{
+    float y = extrasTop;
+    NSArray *rv = [self shownReviews];
+    unsigned k;
+    NSFont *body = [NSFont systemFontOfSize:11];
+
+    GDDrawText(@"Ratings & Reviews", NSMakeRect(RIGHT_X, y, w, 20), [NSFont boldSystemFontOfSize:14],
+               [NSColor blackColor], YES);
+    y += 34;
+    GDDrawText([detail votes] ? [NSString stringWithFormat:@"%.1f", [detail rating]] : GDU("\xE2\x80\x94"),
+               NSMakeRect(RIGHT_X, y - 6, 50, 26), [NSFont boldSystemFontOfSize:22], [NSColor blackColor], YES);
+    GDDrawStars(NSMakeRect(RIGHT_X + 52, y, 80, 14), [detail rating]);
+    GDDrawText([NSString stringWithFormat:@"%d ratings  %C  %u reviews", [detail votes], (unichar)0x00B7,
+                   (unsigned)[[detail reviews] count]],
+               NSMakeRect(RIGHT_X + 142, y, w - 142, 16), [NSFont systemFontOfSize:11], GDSubtleTextColor(), YES);
+    y += 26;
+    if ([[detail reviews] count] == 0) {
+        GDDrawText(@"No reviews yet.", NSMakeRect(RIGHT_X, y, w, 16), body, GDSubtleTextColor(), YES);
+        y += 22;
+    }
+    for (k = 0; k < [rv count]; k++) {
+        NSDictionary *r = [rv objectAtIndex:k];
+        NSString *who = [r objectForKey:@"author"], *when = [r objectForKey:@"date"];
+        float th = textHeight([r objectForKey:@"text"], body, w);
+        NSDictionary *wa = textAttrs([NSFont boldSystemFontOfSize:11], [NSColor blackColor]);
+        [who drawAtPoint:NSMakePoint(RIGHT_X, y) withAttributes:wa];
+        [when drawAtPoint:NSMakePoint(RIGHT_X + [who sizeWithAttributes:wa].width + 8, y)
+           withAttributes:textAttrs([NSFont systemFontOfSize:10], GDSubtleTextColor())];
+        y += 18;
+        [[[[NSAttributedString alloc] initWithString:[r objectForKey:@"text"]
+                                          attributes:textAttrs(body, [NSColor colorWithCalibratedWhite:0.15 alpha:1])] autorelease]
+            drawWithRect:NSMakeRect(RIGHT_X, y, w, th) options:NSStringDrawingUsesLineFragmentOrigin];
+        y += th + 8;
+        [[NSColor colorWithCalibratedWhite:0.88 alpha:1] set];
+        NSRectFill(NSMakeRect(RIGHT_X, y, w, 1));
+        y += 8;
+    }
+    if ([[detail reviews] count] > REVIEWS_SHOWN) {
+        NSString *t = showAllReviews ? GDU("Show Fewer \xE2\x80\xBA")
+                                     : [NSString stringWithFormat:@"%@%@", [NSString stringWithFormat:@"Show All %u Reviews ",
+                                           (unsigned)[[detail reviews] count]], GDU("\xE2\x80\xBA")];
+        NSDictionary *la = textAttrs([NSFont systemFontOfSize:11], GDAccentColor());
+        NSSize ts = [t sizeWithAttributes:la];
+        NSRect lr = NSMakeRect(RIGHT_X, y, ts.width, ts.height);
+        [t drawInRect:lr withAttributes:la];
+        [self link:lr kind:@"reviews" object:nil];
+        y += 22;
+    }
+    if ([moreByAuthor count])
+        y = [self drawShelf:[NSString stringWithFormat:@"More by %@", [detail author]] items:moreByAuthor y:y width:w
+                    listing:[NSDictionary dictionaryWithObjectsAndKeys:@"list", @"kind", [detail section], @"section",
+                                [detail authorPath], @"selector", [detail author] ?: @"", @"title", nil]];
+    if ([related count])
+        y = [self drawShelf:@"Related" items:related y:y width:w
+                    listing:[detail categoryPath] ? [NSDictionary dictionaryWithObjectsAndKeys:@"list", @"kind",
+                                [detail section], @"section", [detail categoryPath], @"selector",
+                                [detail category] ?: @"", @"title", nil] : nil];
+    [[self window] invalidateCursorRectsForView:self];
 }
 
 - (void) mouseUp:(NSEvent *)e
 {
     NSPoint p = [self convertPoint:[e locationInWindow] fromView:nil];
     unsigned i;
+    for (i = 0; i < [links count]; i++) {
+        NSArray *l = [links objectAtIndex:i];
+        NSString *kind = [l objectAtIndex:1];
+        if (!NSPointInRect(p, [[l objectAtIndex:0] rectValue]))
+            continue;
+        if ([kind isEqualToString:@"reviews"]) {
+            showAllReviews = !showAllReviews;
+            [self rebuild];
+        } else if ([kind isEqualToString:@"item"] && [delegate respondsToSelector:@selector(itemView:openItem:)]) {
+            [delegate itemView:self openItem:[l objectAtIndex:2]];
+        } else if ([kind isEqualToString:@"listing"] && [delegate respondsToSelector:@selector(itemView:openListing:)]) {
+            [delegate itemView:self openListing:[l objectAtIndex:2]];
+        }
+        return;
+    }
     for (i = 0; i < [shotRects count]; i++) {
         NSArray *s = [shotRects objectAtIndex:i];
         if (NSPointInRect(p, [[s objectAtIndex:0] rectValue]) &&
@@ -356,6 +616,8 @@
 - (void) resetCursorRects
 {
     unsigned i;
+    for (i = 0; i < [links count]; i++)
+        [self addCursorRect:[[[links objectAtIndex:i] objectAtIndex:0] rectValue] cursor:[NSCursor pointingHandCursor]];
     for (i = 0; i < [shotRects count]; i++)
         [self addCursorRect:[[[shotRects objectAtIndex:i] objectAtIndex:0] rectValue]
                      cursor:[NSCursor pointingHandCursor]];

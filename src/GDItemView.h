@@ -14,6 +14,8 @@
 - (void) itemView:(id)v openInstalled:(NSDictionary *)entry;
 - (void) itemView:(id)v showScreenshot:(NSString *)url;
 - (void) itemView:(id)v showJob:(GDInstallJob *)job;
+- (void) itemView:(id)v openItem:(GDItem *)item;
+- (void) itemView:(id)v openListing:(NSDictionary *)page;
 @end
 
 @interface GDItemView : NSView
@@ -28,6 +30,14 @@
     NSProgressIndicator *bar;
     NSMutableArray *fileButtons;
     float descHeight;
+
+    /* below the downloads: reviews, more by the author, related */
+    float extrasTop;
+    BOOL showAllReviews;
+    NSArray *moreByAuthor;      /* GDItem */
+    NSArray *related;           /* GDItem */
+    NSMutableArray *extraRequests;
+    NSMutableArray *links;      /* {rect, kind, object} */
 }
 - (id) initWithFrame:(NSRect)f path:(NSString *)p summary:(GDItem *)s;
 - (void) setDelegate:(id)d;

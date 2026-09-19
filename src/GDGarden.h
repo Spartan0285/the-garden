@@ -28,6 +28,7 @@ typedef enum {
     NSString *category;
     NSString *categoryPath; /* e.g. "/apps/internet" */
     NSString *author;
+    NSString *authorPath;   /* "/author/microsoft" */
     NSString *blurb;
     NSString *thumbURL;
     float rating;           /* 0..5, 0 = unrated */
@@ -40,6 +41,8 @@ typedef enum {
 - (NSString *) year;
 - (NSString *) category;
 - (NSString *) author;
+- (NSString *) authorPath;
+- (NSString *) categoryPath;
 - (NSString *) blurb;
 - (NSString *) thumbURL;
 - (float) rating;
@@ -76,12 +79,16 @@ typedef enum {
     NSString *descriptionText;
     NSArray *screenshots;   /* full-size URLs */
     NSArray *files;         /* GDFile */
+    NSArray *reviews;       /* {author, date, text}, newest first */
+    NSArray *seeAlso;       /* GDItem (title + path) linked from the description */
 }
 - (NSString *) publisher;
 - (NSString *) architecture;
 - (NSString *) descriptionText;
 - (NSArray *) screenshots;
 - (NSArray *) files;
+- (NSArray *) reviews;
+- (NSArray *) seeAlso;
 @end
 
 @interface GDListing : NSObject
@@ -94,6 +101,15 @@ typedef enum {
 - (NSArray *) items;
 - (int) page;
 - (int) pageCount;
+@end
+
+/* One entry of the site's rss.xml (newest additions). */
+@interface GDNewsItem : GDItem
+{
+@public
+    NSDate *published;
+}
+- (NSDate *) published;
 @end
 
 @interface GDGarden : NSObject
@@ -109,4 +125,6 @@ typedef enum {
 + (GDItemDetail *) parseItem:(NSData *)html path:(NSString *)path;
 + (NSArray *) parseCategories:(NSData *)html section:(NSString *)section; /* {name, path} */
 + (NSString *) parseFormToken:(NSData *)html;
++ (NSArray *) parseFeed:(NSData *)rss;             /* GDNewsItem */
++ (NSURL *) feedURL;
 @end

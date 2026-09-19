@@ -10,6 +10,7 @@
 
 NSString *GDJobChangedNotification = @"GDJobChanged";
 NSString *GDLibraryChangedNotification = @"GDLibraryChanged";
+NSString *GDUpdatesChangedNotification = @"GDUpdatesChanged";
 
 /* ----------------------------------------------------------------- jobs */
 
@@ -19,6 +20,7 @@ NSString *GDLibraryChangedNotification = @"GDLibraryChanged";
     [item release]; [file release]; [status release];
     [downloadPath release]; [workDir release]; [installed release];
     [launchPath release]; [revealPath release]; [request release]; [mirrorOrder release];
+    [replaces release];
     [super dealloc];
 }
 - (GDItemDetail *) item { return item; }
@@ -198,6 +200,224 @@ static NSString *safeName(NSString *s)
     return d;
 }
 
+/* ------------------------------------------------------------- updates */
+
+/* A file name's "kind": lower-case, version numbers, archive wrappers and
+ * release words removed.  legacy_132beta1_macosx_sit.hqx and
+ * legacy_140_macosx.dmg are the same kind; IE5.1.7fr.sit and IE5.1.7.sit are not. */
+static NSString *fileKind(NSString *name)
+{
+    NSMutableString *m = [[[name lowercaseString] mutableCopy] autorelease];
+    NSArray *junk = [NSArray arrayWithObjects:@".sitx", @".sit", @"_sit", @".hqx", @".bin", @".zip", @".dmg", @".img",
+                              @".smi", @".toast", @".cdr", @".iso", @".sea", @".cpt", @".tgz", @".gz",
+                              @"beta", @"alpha", @"final", @"release", @"_folder", @"folder", @"_", @"-",
+                              @".", @" ", nil];
+    unsigned i, k;
+    for (i = 0; i < [junk count]; i++)
+        [m replaceOccurrencesOfString:[junk objectAtIndex:i] withString:@"" options:0
+                                range:NSMakeRange(0, [m length])];
+    for (k = 0; k < [m length]; ) {
+        unichar c = [m characterAtIndex:k];
+        if (c >= '0' && c <= '9')
+            [m deleteCharactersInRange:NSMakeRange(k, 1)];
+        else
+            k++;
+    }
+    /* A lone trailing "b"/"a" left from "132b1"-style betas. */
+    while ([m hasSuffix:@"b"] || [m hasSuffix:@"a"])
+        [m deleteCharactersInRange:NSMakeRange([m length] - 1, 1)];
+    return m;
+}
+
+/* The version in a file name as a comparable list: "1.48.6" -> 1,48,6;
+ * "legacy_140" -> 140 (written without dots). */
+static NSArray *fileVersion(NSString *name)
+{
+    NSScanner *sc = [NSScanner scannerWithString:name];
+    NSMutableArray *v = [NSMutableArray array];
+    NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
+    int n;
+    [sc scanUpToCharactersFromSet:digits intoString:NULL];
+    while ([sc scanInt:&n]) {
+        [v addObject:[NSNumber numberWithInt:n]];
+        if (![sc scanString:@"." intoString:NULL])
+            break;
+    }
+    return v;
+}
+
+static int compareVersions(NSArray *a, NSArray *b)
+{
+    unsigned i;
+    /* "132" vs "140" and "1.3.2" vs "1.4": compare digit strings when either
+     * has no dots. */
+    if ([a count] == 1 || [b count] == 1) {
+        NSString *sa = [a componentsJoinedByString:@""], *sb = [b componentsJoinedByString:@""];
+        unsigned w = MAX([sa length], [sb length]);
+        while ([sa length] < w) sa = [sa stringByAppendingString:@"0"];
+        while ([sb length] < w) sb = [sb stringByAppendingString:@"0"];
+        return [sa compare:sb];
+    }
+    for (i = 0; i < MAX([a count], [b count]); i++) {
+        int x = i < [a count] ? [[a objectAtIndex:i] intValue] : 0;
+        int y = i < [b count] ? [[b objectAtIndex:i] intValue] : 0;
+        if (x != y)
+            return x < y ? -1 : 1;
+    }
+    return 0;
+}
+
++ (GDFile *) newerFileFor:(NSDictionary *)entry inDetail:(GDItemDetail *)d
+{
+    NSString *have = [entry objectForKey:@"file"];
+    GDFile *mine = nil, *best = nil;
+    NSString *kind;
+    NSArray *myVer;
+    unsigned i;
+    if (d == nil || [have length] == 0)
+        return nil;
+    for (i = 0; i < [[d files] count]; i++)
+        if ([[[[d files] objectAtIndex:i] name] isEqualToString:have])
+            mine = [[d files] objectAtIndex:i];
+    kind = fileKind(have);
+    myVer = fileVersion(have);
+    for (i = 0; i < [[d files] count]; i++) {
+        GDFile *f = [[d files] objectAtIndex:i];
+        NSArray *v = fileVersion([f name]);
+        NSString *ln = [[f name] lowercaseString];
+        if (f == mine || ![fileKind([f name]) isEqualToString:kind])
+            continue;
+        if (![GDCompat runsHere:[GDCompat verdictForFile:f architecture:[d architecture]]] ||
+            [GDCompat verdictForFile:f architecture:[d architecture]] == GDVerdictUnknown)
+            continue;
+        if ([ln rangeOfString:@"beta"].location != NSNotFound || [ln rangeOfString:@"demo"].location != NSNotFound)
+            continue;
+        /* Versions when both names carry one; upload dates only when
+         * neither does (a re-upload is not a newer version); if just one
+         * has a number there is no telling, so no offer. */
+        if ([v count] && [myVer count]) {
+            if (compareVersions(v, myVer) <= 0)
+                continue;
+        } else if ([v count] == 0 && [myVer count] == 0) {
+            if (!(mine && [[f date] compare:[mine date]] == NSOrderedDescending))
+                continue;
+        } else {
+            continue;
+        }
+        if (best == nil || compareVersions(fileVersion([f name]), fileVersion([best name])) > 0)
+            best = f;
+    }
+    return best;
+}
+
+- (void) recomputeUpdates:(NSNotification *)n
+{
+    NSMutableArray *u = [NSMutableArray array];
+    unsigned i;
+    for (i = 0; i < [library count]; i++) {
+        NSDictionary *e = [library objectAtIndex:i];
+        GDItemDetail *d = [[GDCatalog sharedCatalog] detailForPath:[e objectForKey:@"path"]];
+        GDFile *f = [GDInstaller newerFileFor:e inDetail:d];
+        GDInstallJob *j = [self jobForItemPath:[e objectForKey:@"path"]];
+        if (f && !(j && [j isActive]))
+            [u addObject:[NSDictionary dictionaryWithObjectsAndKeys:e, @"entry", f, @"file", d, @"detail", nil]];
+    }
+    if (![u isEqualToArray:updates]) {
+        [updates setArray:u];
+        [[NSNotificationCenter defaultCenter] postNotificationName:GDUpdatesChangedNotification object:self];
+    }
+}
+
+- (void) checkForUpdates
+{
+    unsigned i;
+    /* Item pages of installed titles, at most a day old. */
+    for (i = 0; i < [library count]; i++)
+        [[GDCatalog sharedCatalog] detailForPath:[[library objectAtIndex:i] objectForKey:@"path"]];
+    [self recomputeUpdates:nil];
+}
+
+- (NSArray *) updates { return updates; }
+
+- (GDInstallJob *) installUpdate:(NSDictionary *)u
+{
+    NSDictionary *e = [u objectForKey:@"entry"];
+    GDInstallJob *job = [self installFile:[u objectForKey:@"file"] ofItem:[u objectForKey:@"detail"]];
+    job->replaces = [[e objectForKey:@"installed"] copy];
+    [self recomputeUpdates:nil];
+    return job;
+}
+
+/* ---------------------------------------------------------------- icons */
+
+- (NSString *) iconDir
+{
+    NSString *d = [[libraryPath stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Icons"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:d attributes:nil];
+    return d;
+}
+
+- (NSImage *) iconForEntry:(NSDictionary *)e
+{
+    static NSMutableDictionary *mem;
+    NSString *target = [e objectForKey:@"launch"] ?: [[e objectForKey:@"installed"] lastObject];
+    NSString *png;
+    NSImage *img;
+    if (target == nil || ![[NSFileManager defaultManager] fileExistsAtPath:target])
+        return nil;
+    if (mem == nil)
+        mem = [[NSMutableDictionary alloc] init];
+    if ((img = [mem objectForKey:target]) != nil)
+        return img;
+    png = [[self iconDir] stringByAppendingPathComponent:[GDMD5OfString(target) stringByAppendingPathExtension:@"tiff"]];
+    img = [[[NSImage alloc] initWithContentsOfFile:png] autorelease];
+    if (img == nil) {
+        /* The Finder's icon: an .app's icns, or a classic program's icon resources. */
+        img = [[NSWorkspace sharedWorkspace] iconForFile:target];
+        [img setSize:NSMakeSize(128, 128)];
+        [[img TIFFRepresentation] writeToFile:png atomically:YES];
+    }
+    if (img)
+        [mem setObject:img forKey:target];
+    return img;
+}
+
+/* ----------------------------------------------------------------- dock */
+
+- (BOOL) addToDock:(NSDictionary *)e
+{
+    NSString *app = [e objectForKey:@"launch"];
+    NSMutableArray *apps;
+    NSDictionary *tile;
+    CFPropertyListRef cur;
+    unsigned i;
+    if (app == nil)
+        return NO;
+    cur = CFPreferencesCopyAppValue(CFSTR("persistent-apps"), CFSTR("com.apple.dock"));
+    apps = [NSMutableArray arrayWithArray:(NSArray *)cur ?: [NSArray array]];
+    if (cur)
+        CFRelease(cur);
+    for (i = 0; i < [apps count]; i++) {
+        NSString *u = [[[[apps objectAtIndex:i] objectForKey:@"tile-data"] objectForKey:@"file-data"]
+                          objectForKey:@"_CFURLString"];
+        if ([u isEqualToString:app] || [[[NSURL URLWithString:u] path] isEqualToString:app])
+            return YES;     /* already there */
+    }
+    tile = [NSDictionary dictionaryWithObjectsAndKeys:
+               [NSDictionary dictionaryWithObjectsAndKeys:
+                   [NSDictionary dictionaryWithObjectsAndKeys:app, @"_CFURLString",
+                       [NSNumber numberWithInt:0], @"_CFURLStringType", nil], @"file-data",
+                   [[app lastPathComponent] stringByDeletingPathExtension], @"file-label", nil], @"tile-data",
+               @"file-tile", @"tile-type", nil];
+    [apps addObject:tile];
+    CFPreferencesSetAppValue(CFSTR("persistent-apps"), (CFArrayRef)apps, CFSTR("com.apple.dock"));
+    CFPreferencesAppSynchronize(CFSTR("com.apple.dock"));
+    /* The Dock rereads its preferences when restarted, as it does after
+     * dragging an app in; it comes straight back. */
+    [NSTask launchedTaskWithLaunchPath:@"/usr/bin/killall" arguments:[NSArray arrayWithObject:@"Dock"]];
+    return YES;
+}
+
 - (id) init
 {
     NSString *dir;
@@ -213,6 +433,9 @@ static NSString *safeName(NSString *s)
     library = [[NSMutableArray alloc] initWithContentsOfFile:libraryPath] ?: [[NSMutableArray alloc] init];
     speeds = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"GDMirrorSpeeds"] mutableCopy]
              ?: [[NSMutableDictionary alloc] init];
+    updates = [[NSMutableArray alloc] init];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(recomputeUpdates:)
+                                                 name:GDDetailLoadedNotification object:nil];
     return self;
 }
 
@@ -779,8 +1002,25 @@ static BOOL isDiskImage(NSString *p)
     [pool release];
 }
 
+- (void) trashPaths:(NSArray *)paths keeping:(NSArray *)keep
+{
+    unsigned i;
+    for (i = 0; i < [paths count]; i++) {
+        NSString *p = [paths objectAtIndex:i];
+        if ([keep containsObject:p] || ![[NSFileManager defaultManager] fileExistsAtPath:p])
+            continue;
+        [[NSWorkspace sharedWorkspace] performFileOperation:NSWorkspaceRecycleOperation
+                                                     source:[p stringByDeletingLastPathComponent]
+                                                destination:@""
+                                                      files:[NSArray arrayWithObject:[p lastPathComponent]]
+                                                        tag:NULL];
+    }
+}
+
 - (void) finish:(GDInstallJob *)job
 {
+    if (job->replaces)
+        [self trashPaths:job->replaces keeping:job->installed];
     if ([[job->launchPath pathExtension] isEqualToString:@"app"])
         LSRegisterURL((CFURLRef)[NSURL fileURLWithPath:job->launchPath], true);
     NSDictionary *old = [self libraryEntryForPath:[job->item path]];
@@ -800,6 +1040,7 @@ static BOOL isDiskImage(NSString *p)
     [library insertObject:e atIndex:0];
     [self saveLibrary];
     job->progress = 1;
+    [self recomputeUpdates:nil];
     [self setJob:job state:GDJobDone
           status:job->launchPath ? @"Installed" : @"Installed (open it from the Finder)"];
 }

@@ -5,17 +5,27 @@ native on Mac OS X 10.4 Tiger and 10.5 Leopard, Universal (PowerPC G3 and
 later, and Intel). It browses, searches, downloads and installs by itself -
 no helper on another machine.
 
-- **Store:** Featured, Apps, Games (A-Z), Categories, Search; item pages with
-  screenshots, ratings, every download and a compatibility badge for this Mac
-  (runs natively, via Rosetta, in Classic, or not at all).
+- **Store:** Featured (with New & Noteworthy from the site's feed), Apps and
+  Games (A-Z), Categories, Search. Item pages have screenshots, the rating,
+  reviews (the site's comments), every download with a compatibility badge
+  for this Mac (natively, via Rosetta, in Classic, or not at all), and rows of
+  "More by <author>" and "Related" titles.
 - **Get:** downloads over modern TLS (static libcurl 8 + OpenSSL 3; Tiger's
   own TLS stops at 1.0), resumes interrupted downloads, prefers fast mirrors,
   checks the Garden's MD5, then unpacks and installs: disk images via hdiutil,
   archives (StuffIt, BinHex, MacBinary, Compact Pro, zip, ...) via the bundled
   XADMaster; apps go to /Applications, Mac OS 9 software to
   "Applications (Mac OS 9)", installer packages open in Installer.
-- **Library:** downloads and installed titles, Open / Show in Finder / Move to
-  Trash / View in Store.
+- **Library:** downloads and installed titles with their real icons: Open,
+  Add to Dock, Show in Finder, Move to Trash, View in Store.
+- **Updates:** installed titles for which the Garden has a newer file of the
+  same kind (same variant, higher version); Update installs it and moves the
+  old copy to the Trash. The count shows on the tab and the Dock icon, which
+  also shows download progress.
+- **Light on the site:** pages are cached on disk (item pages 3 days,
+  listings 6 hours, the feed 1 hour) and shown offline when the network is
+  down. The Garden only fetches what you open; the site's robots.txt asks
+  crawlers not to index it, so there is no catalog crawl.
 
 ## Building
 

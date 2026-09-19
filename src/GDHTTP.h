@@ -40,12 +40,21 @@
     double lastProgress;
     long long resumedFrom;       /* bytes already on disk when this attempt began */
     int curlCode;
+    double cacheTTL;             /* >0: serve a GET from the page cache if younger */
+    BOOL fromCache, stale;
 }
 
 + (GDHTTPRequest *) requestWithURL:(NSURL *)u;
 + (NSString *) userAgent;
 
 - (void) setPostBody:(NSData *)body;             /* application/x-www-form-urlencoded */
+/* Page cache for GETs kept in memory (not downloads): a copy younger than
+ * ttl seconds is returned without touching the network; if the network
+ * fails, any copy is returned (offline browsing) and -isStale says so. */
+- (void) setCacheTTL:(double)ttl;
+- (BOOL) isFromCache;
+- (BOOL) isStale;
++ (void) purgePageCacheOlderThan:(double)seconds;
 - (void) setDestinationPath:(NSString *)path;    /* stream to this file; a
                                                     leftover path.part is resumed */
 - (void) setDelegate:(id)d;

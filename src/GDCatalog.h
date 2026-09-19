@@ -23,6 +23,7 @@ extern NSString *GDImageLoadedNotification;    /* object: image URL */
     NSMutableSet *imageLoads;
     NSMutableArray *imageLRU;
     NSString *cacheDir;
+    NSMutableSet *refreshing;      /* paths to fetch past the cache */
 }
 + (GDCatalog *) sharedCatalog;
 

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <openssl/evp.h>
 
 #define GD_HTTP_MAX_ACTIVE 4
 
@@ -50,6 +51,36 @@ static void GDHTTPSetup(void)
         if ([[NSFileManager defaultManager] fileExistsAtPath:p])
             gCABundle = [p retain];
     }
+}
+
+static NSString *gPageCacheDir;
+
+static NSString *pageCachePath(NSURL *u)
+{
+    unsigned char d[EVP_MAX_MD_SIZE];
+    unsigned int n = 0, i;
+    const char *c = [[u absoluteString] UTF8String];
+    NSMutableString *h = [NSMutableString string];
+    if (gPageCacheDir == nil) {
+        NSString *base = [[NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)
+                              objectAtIndex:0] stringByAppendingPathComponent:@"The Garden"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:base attributes:nil];
+        gPageCacheDir = [[base stringByAppendingPathComponent:@"Pages"] retain];
+        [[NSFileManager defaultManager] createDirectoryAtPath:gPageCacheDir attributes:nil];
+    }
+    EVP_Digest(c, strlen(c), d, &n, EVP_md5(), NULL);
+    for (i = 0; i < n; i++)
+        [h appendFormat:@"%02x", d[i]];
+    return [gPageCacheDir stringByAppendingPathComponent:h];
+}
+
+/* Age in seconds of the cached copy, or -1. */
+static double cacheAge(NSString *p)
+{
+    struct stat st;
+    if (stat([p fileSystemRepresentation], &st) != 0)
+        return -1;
+    return difftime(time(NULL), st.st_mtime);
 }
 
 NSString *GDFormEncode(NSString *s)
@@ -123,6 +154,28 @@ NSString *GDFormEncode(NSString *s)
 - (BOOL) isCancelled { return cancelled != 0; }
 - (BOOL) isFinished { return finished; }
 - (long long) resumedFrom { return resumedFrom; }
+- (void) setCacheTTL:(double)ttl { cacheTTL = ttl; }
+- (BOOL) isFromCache { return fromCache; }
+- (BOOL) isStale { return stale; }
+
++ (void) purgePageCacheOlderThan:(double)seconds
+{
+    NSString *dir, *f;
+    NSEnumerator *e;
+    pageCachePath([NSURL URLWithString:@"about:blank"]);
+    dir = gPageCacheDir;
+    e = [[[NSFileManager defaultManager] directoryContentsAtPath:dir] objectEnumerator];
+    while ((f = [e nextObject]) != nil) {
+        NSString *p = [dir stringByAppendingPathComponent:f];
+        if (cacheAge(p) > seconds)
+            unlink([p fileSystemRepresentation]);
+    }
+}
+
+- (BOOL) cacheable
+{
+    return cacheTTL > 0 && postBody == nil && destinationPath == nil;
+}
 - (BOOL) isTransientFailure
 {
     return curlCode == CURLE_OPERATION_TIMEDOUT || curlCode == CURLE_PARTIAL_FILE ||
@@ -305,9 +358,47 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     return error == nil;
 }
 
+/* The network fetch wrapped in the page cache. */
+- (BOOL) performCached
+{
+    NSString *cp;
+    double age;
+    BOOL ok;
+    if (![self cacheable])
+        return [self perform];
+    cp = pageCachePath(url);
+    age = cacheAge(cp);
+    if (age >= 0 && age < cacheTTL) {
+        NSData *d = [NSData dataWithContentsOfFile:cp];
+        if ([d length]) {
+            [data release];
+            data = [d mutableCopy];
+            statusCode = 200;
+            fromCache = YES;
+            return YES;
+        }
+    }
+    ok = [self perform];
+    if (ok && [data length])
+        [data writeToFile:cp atomically:YES];
+    else if (!ok && !cancelled && age >= 0) {
+        NSData *d = [NSData dataWithContentsOfFile:cp];
+        if ([d length]) {
+            [data release];
+            data = [d mutableCopy];
+            [error release];
+            error = nil;
+            statusCode = 200;
+            fromCache = stale = YES;
+            return YES;
+        }
+    }
+    return ok;
+}
+
 - (BOOL) startSynchronous
 {
-    BOOL ok = [self perform];
+    BOOL ok = [self performCached];
     finished = YES;
     return ok;
 }
@@ -323,6 +414,23 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 
+    /* A fresh cached page needs no network slot. */
+    if ([self cacheable]) {
+        NSString *cp = pageCachePath(url);
+        double age = cacheAge(cp);
+        NSData *d = (age >= 0 && age < cacheTTL) ? [NSData dataWithContentsOfFile:cp] : nil;
+        if ([d length]) {
+            [data release];
+            data = [d mutableCopy];
+            statusCode = 200;
+            fromCache = YES;
+            [self performSelectorOnMainThread:@selector(finishOnMain) withObject:nil waitUntilDone:NO];
+            [self release];
+            [pool release];
+            return;
+        }
+    }
+
     pthread_mutex_lock(&gSlotLock);
     while (gActive >= GD_HTTP_MAX_ACTIVE)
         pthread_cond_wait(&gSlotCond, &gSlotLock);
@@ -330,7 +438,7 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     pthread_mutex_unlock(&gSlotLock);
 
     if (!cancelled)
-        [self perform];
+        [self performCached];
     else
         error = [@"Cancelled" retain];
 

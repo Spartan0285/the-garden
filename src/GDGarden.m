@@ -1,6 +1,7 @@
 #import "GDGarden.h"
 #import "GDHTTP.h"
 #include <libxml/HTMLparser.h>
+#include <libxml/parser.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
@@ -10,7 +11,7 @@
 - (void) dealloc
 {
     [section release]; [slug release]; [title release]; [year release];
-    [category release]; [categoryPath release]; [author release];
+    [category release]; [categoryPath release]; [author release]; [authorPath release];
     [blurb release]; [thumbURL release];
     [super dealloc];
 }
@@ -21,6 +22,8 @@
 - (NSString *) year { return year; }
 - (NSString *) category { return category; }
 - (NSString *) author { return author; }
+- (NSString *) authorPath { return authorPath; }
+- (NSString *) categoryPath { return categoryPath; }
 - (NSString *) blurb { return blurb; }
 - (NSString *) thumbURL { return thumbURL; }
 - (float) rating { return rating; }
@@ -49,7 +52,7 @@
 - (void) dealloc
 {
     [publisher release]; [architecture release]; [descriptionText release];
-    [screenshots release]; [files release];
+    [screenshots release]; [files release]; [reviews release]; [seeAlso release];
     [super dealloc];
 }
 - (NSString *) publisher { return publisher; }
@@ -57,6 +60,13 @@
 - (NSString *) descriptionText { return descriptionText; }
 - (NSArray *) screenshots { return screenshots; }
 - (NSArray *) files { return files; }
+- (NSArray *) reviews { return reviews; }
+- (NSArray *) seeAlso { return seeAlso; }
+@end
+
+@implementation GDNewsItem
+- (void) dealloc { [published release]; [super dealloc]; }
+- (NSDate *) published { return published; }
 @end
 
 @implementation GDListing
@@ -222,6 +232,8 @@ static void readFields(xmlXPathContextPtr ctx, xmlNodePtr base, GDItem *it,
         } else if ([label hasPrefix:@"Author"]) {
             [it->author release];
             it->author = [(firstText(ctx, tr, "./td[2]//a") ?: value) retain];
+            [it->authorPath release];
+            it->authorPath = [firstAttr(ctx, tr, "./td[2]//a", "href") retain];
         } else if ([label hasPrefix:@"Publisher"] && publisher) {
             *publisher = firstText(ctx, tr, "./td[2]//a") ?: value;
         } else if ([label hasPrefix:@"Rating"]) {
@@ -536,6 +548,72 @@ static double parseSize(NSString *s)
     }
     D->descriptionText = [desc retain];
 
+    /* "See also" - other Garden items linked from the description. */
+    {
+        NSMutableArray *also = [NSMutableArray array];
+        NSMutableSet *seen = [NSMutableSet set];
+        o = xp(ctx, NULL, "//h1/following::div[@class='game-preview'][1]/following-sibling::p//a");
+        for (i = 0; i < xpCount(o); i++) {
+            NSString *sec2 = nil, *slug2 = nil, *h = attr(xpNode(o, i), "href");
+            GDItem *it;
+            if (!splitItemPath(h, &sec2, &slug2))
+                continue;
+            it = [[[GDItem alloc] init] autorelease];
+            it->section = [sec2 retain];
+            it->slug = [slug2 retain];
+            it->title = [nodeText(xpNode(o, i)) retain];
+            if ([[it path] isEqualToString:path] || [seen containsObject:[it path]] || [it->title length] == 0)
+                continue;
+            [seen addObject:[it path]];
+            [also addObject:it];
+        }
+        if (o)
+            xmlXPathFreeObject(o);
+        D->seeAlso = [also retain];
+    }
+
+    /* Comments, shown as reviews: "by NAME - DATE" then paragraphs. */
+    {
+        NSMutableArray *revs = [NSMutableArray array];
+        o = xp(ctx, NULL, "//div[@id='comments']//div[starts-with(@class,'comment ')]");
+        for (i = 0; i < xpCount(o) && [revs count] < 40; i++) {
+            xmlNodePtr cm = xpNode(o, i);
+            xmlXPathObjectPtr ps;
+            NSMutableString *body = [NSMutableString string];
+            NSString *byline = firstText(ctx, cm, "./text()[contains(.,'by ')]"), *who = @"", *when = @"";
+            int k;
+            if (byline) {
+                NSRange by = [byline rangeOfString:@"by "], dash = [byline rangeOfString:@" - "];
+                if (by.location != NSNotFound && dash.location != NSNotFound && dash.location > NSMaxRange(by)) {
+                    who = [byline substringWithRange:NSMakeRange(NSMaxRange(by), dash.location - NSMaxRange(by))];
+                    when = [byline substringFromIndex:NSMaxRange(dash)];
+                    /* "4 September, 2026 - 04:03" -> "4 September, 2026" */
+                    dash = [when rangeOfString:@" - "];
+                    if (dash.location != NSNotFound)
+                        when = [when substringToIndex:dash.location];
+                }
+            }
+            ps = xp(ctx, cm, "./p");
+            for (k = 0; k < xpCount(ps); k++) {
+                NSMutableString *para = [NSMutableString string];
+                appendRich(para, xpNode(ps, k)->children);
+                if ([para length]) {
+                    if ([body length])
+                        [body appendString:@"\n\n"];
+                    [body appendString:para];
+                }
+            }
+            if (ps)
+                xmlXPathFreeObject(ps);
+            if ([body length])
+                [revs addObject:[NSDictionary dictionaryWithObjectsAndKeys:who, @"author", when, @"date",
+                                    body, @"text", nil]];
+        }
+        if (o)
+            xmlXPathFreeObject(o);
+        D->reviews = [revs retain];
+    }
+
     o = xp(ctx, NULL, "//text()[contains(.,'Architecture:')]");
     if (o) {
         s = nodeText(xpNode(o, 0));
@@ -575,6 +653,57 @@ static double parseSize(NSString *s)
     }
     if (o)
         xmlXPathFreeObject(o);
+    xmlXPathFreeContext(ctx);
+    xmlFreeDoc(doc);
+    return out;
+}
+
++ (NSURL *) feedURL
+{
+    return [self absoluteURL:@"/rss.xml"];
+}
+
++ (NSArray *) parseFeed:(NSData *)rss
+{
+    /* RSS 2.0: <item><title/><link/><description>escaped HTML</description><pubDate/> */
+    xmlDocPtr doc;
+    xmlXPathContextPtr ctx;
+    xmlXPathObjectPtr items;
+    NSMutableArray *out = [NSMutableArray array];
+    int i;
+    if ([rss length] == 0)
+        return out;
+    doc = xmlReadMemory([rss bytes], (int)[rss length], "rss.xml", NULL, (1 << 5) | (1 << 6) | (1 << 11));
+    if (doc == NULL)
+        return out;
+    ctx = xmlXPathNewContext(doc);
+    items = xp(ctx, NULL, "//item");
+    for (i = 0; i < xpCount(items); i++) {
+        xmlNodePtr n = xpNode(items, i);
+        GDNewsItem *it = [[[GDNewsItem alloc] init] autorelease];
+        NSString *sec = nil, *slug = nil, *desc, *date;
+        NSRange r;
+        if (!splitItemPath(firstText(ctx, n, "./link"), &sec, &slug))
+            continue;
+        it->section = [sec retain];
+        it->slug = [slug retain];
+        it->title = [firstText(ctx, n, "./title") retain];
+        desc = firstText(ctx, n, "./description");
+        /* first screenshot in the escaped description */
+        r = [desc rangeOfString:@"src=\""];
+        if (r.location != NSNotFound) {
+            NSString *rest = [desc substringFromIndex:NSMaxRange(r)];
+            NSRange q = [rest rangeOfString:@"\""];
+            if (q.location != NSNotFound)
+                it->thumbURL = [[rest substringToIndex:q.location] retain];
+        }
+        date = firstText(ctx, n, "./pubDate");
+        if (date)
+            it->published = [[NSDate dateWithNaturalLanguageString:date] retain];
+        [out addObject:it];
+    }
+    if (items)
+        xmlXPathFreeObject(items);
     xmlXPathFreeContext(ctx);
     xmlFreeDoc(doc);
     return out;

@@ -16,9 +16,11 @@
 #import <Foundation/Foundation.h>
 #import "GDGarden.h"
 #import "GDCompat.h"
+#import <AppKit/AppKit.h>
 
 extern NSString *GDJobChangedNotification;      /* object: GDInstallJob */
 extern NSString *GDLibraryChangedNotification;
+extern NSString *GDUpdatesChangedNotification;
 
 typedef enum {
     GDJobQueued,
@@ -57,6 +59,7 @@ typedef enum {
     GDHTTPRequest *request;
     volatile BOOL cancelled;
     double started;
+    NSArray *replaces;         /* an update: installed paths to trash once done */
 }
 - (GDItemDetail *) item;
 - (GDFile *) file;
@@ -75,6 +78,7 @@ typedef enum {
     NSString *libraryPath;
     NSMutableDictionary *speeds;   /* mirror host -> bytes/s, remembered */
     GDInstallJob *currentExtractJob;   /* worker thread's job, for progress */
+    NSMutableArray *updates;   /* {entry, file, detail} */
 }
 + (GDInstaller *) sharedInstaller;
 
@@ -88,6 +92,16 @@ typedef enum {
 /* Library: {path, title, file, installed (array), launch, date, thumb, verdict} */
 - (NSArray *) library;
 - (NSDictionary *) libraryEntryForPath:(NSString *)path;
+- (NSImage *) iconForEntry:(NSDictionary *)entry;   /* the installed app's icon, or nil */
+
+/* Updates: a newer file of the same kind as the installed one. */
+- (void) checkForUpdates;
+- (NSArray *) updates;                               /* {entry, file, detail} */
+- (GDInstallJob *) installUpdate:(NSDictionary *)update;
++ (GDFile *) newerFileFor:(NSDictionary *)entry inDetail:(GDItemDetail *)d;
+
+/* Dock: add an installed app. */
+- (BOOL) addToDock:(NSDictionary *)entry;
 - (void) removeLibraryEntry:(NSDictionary *)entry moveToTrash:(BOOL)trash;
 
 + (NSString *) downloadsFolder;

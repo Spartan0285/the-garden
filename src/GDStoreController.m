@@ -10,14 +10,15 @@
 
 static NSString *TBNav = @"nav", *TBSections = @"sections", *TBSearch = @"search";
 
-enum { SegFeatured, SegApps, SegGames, SegCategories, SegLibrary };
+enum { SegFeatured, SegApps, SegGames, SegCategories, SegLibrary, SegUpdates };
 
 /* Request purposes (tag) */
-enum { ReqShelf = 1, ReqSearchToken, ReqSearch };
+enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
 
 @interface GDStoreController (Private)
 - (void) loadShelf:(GDShelf *)sh url:(NSURL *)u;
 - (void) runSearch:(NSString *)keys page:(int)n shelf:(GDShelf *)sh;
+- (GDHTTPRequest *) request:(NSURL *)u tag:(int)tag info:(id)info;
 @end
 
 @implementation GDStoreController
@@ -69,17 +70,18 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch };
     [navControl setAction:@selector(navClicked:)];
 
     sectionControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, 0, 420, 25)];
-    [sectionControl setSegmentCount:5];
+    [sectionControl setSegmentCount:6];
     [sectionControl setLabel:@"Featured" forSegment:SegFeatured];
     [sectionControl setLabel:@"Apps" forSegment:SegApps];
     [sectionControl setLabel:@"Games" forSegment:SegGames];
     [sectionControl setLabel:@"Categories" forSegment:SegCategories];
     [sectionControl setLabel:@"Library" forSegment:SegLibrary];
+    [sectionControl setLabel:@"Updates" forSegment:SegUpdates];
     {
-        float widths[] = { 78, 58, 62, 86, 86 };
+        float widths[] = { 74, 52, 58, 80, 78, 82 };
         float total = 0;
         int k;
-        for (k = 0; k < 5; k++) {
+        for (k = 0; k < 6; k++) {
             [sectionControl setWidth:widths[k] forSegment:k];
             total += widths[k];
         }
@@ -102,6 +104,8 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch };
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(jobChanged:)
                                                  name:GDJobChangedNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(jobChanged:)
+                                                 name:GDUpdatesChangedNotification object:nil];
     return self;
 }
 
@@ -112,8 +116,11 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch };
     if (![window setFrameUsingName:@"GDStoreWindow"])
         [window center];
     [window makeKeyAndOrderFront:nil];
-    if (page == nil)
+    if (page == nil) {
         [self showFeatured:nil];
+        /* Look for updates to installed titles a little after launch. */
+        [[GDInstaller sharedInstaller] performSelector:@selector(checkForUpdates) withObject:nil afterDelay:3];
+    }
 }
 
 /* ----------------------------------------------------------------- toolbar */
@@ -164,12 +171,17 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch };
     else if ([kind isEqualToString:@"games"]) seg = SegGames;
     else if ([kind isEqualToString:@"categories"]) seg = SegCategories;
     else if ([kind isEqualToString:@"library"]) seg = SegLibrary;
+    else if ([kind isEqualToString:@"updates"]) seg = SegUpdates;
     if (seg >= 0)
         [sectionControl setSelectedSegment:seg];
     else {
+        /* No tab for item and search pages.  In select-one mode Tiger keeps
+         * one segment lit no matter what; select-any lets all go dark. */
         int i;
+        [[sectionControl cell] setTrackingMode:NSSegmentSwitchTrackingSelectAny];
         for (i = 0; i < [sectionControl segmentCount]; i++)
             [sectionControl setSelected:NO forSegment:i];
+        [[sectionControl cell] setTrackingMode:NSSegmentSwitchTrackingSelectOne];
     }
     [window setTitle:[page objectForKey:@"title"] ?: @"The Garden"];
 }
@@ -220,8 +232,16 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch };
         apps->seeAll = [@"See All Apps" retain];
         apps->tag = SegApps;
         games->subtitle = [@"Hand-picked by the Macintosh Garden community" retain];
-        [g setShelves:[NSArray arrayWithObjects:games, apps, nil]];
+        GDShelf *news = [GDShelf shelfWithTitle:@"New & Noteworthy"];
+        news->subtitle = [@"Recently added to the Macintosh Garden" retain];
+        [g setShelves:[NSArray arrayWithObjects:news, games, apps, nil]];
         [self setPageView:g];
+        {
+            GDHTTPRequest *r = [self request:[GDGarden feedURL] tag:ReqFeed info:news];
+            news->loading = YES;
+            [r setCacheTTL:3600];
+            [r start];
+        }
         [self loadShelf:games url:[GDGarden listURLForSection:@"games" selector:@"all" page:0]];
         [self loadShelf:apps url:[GDGarden listURLForSection:@"apps" selector:@"all" page:0]];
     } else if ([kind isEqualToString:@"apps"] || [kind isEqualToString:@"games"] ||
@@ -249,9 +269,12 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch };
         [ga->entries addObjectsFromArray:[cats objectForKey:@"games"]];
         [g setShelves:[NSArray arrayWithObjects:ga, a, nil]];
         [self setPageView:g];
-    } else if ([kind isEqualToString:@"library"]) {
+    } else if ([kind isEqualToString:@"library"] || [kind isEqualToString:@"updates"]) {
         GDLibraryView *l = [[[GDLibraryView alloc] initWithFrame:[[scroll contentView] bounds]] autorelease];
         [l setDelegate:self];
+        [l setShowsUpdates:[kind isEqualToString:@"updates"]];
+        if ([kind isEqualToString:@"updates"])
+            [[GDInstaller sharedInstaller] checkForUpdates];
         [self setPageView:l];
         [l reload];
     } else if ([kind isEqualToString:@"search"]) {
@@ -310,6 +333,7 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch };
     case SegGames: [self showGames:sender]; break;
     case SegCategories: [self showCategories:sender]; break;
     case SegLibrary: [self showLibrary:sender]; break;
+    case SegUpdates: [self showUpdates:sender]; break;
     }
 }
 
@@ -323,6 +347,7 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
 - (IBAction) showGames:(id)s { [self go:pageOf(@"games", @"Games")]; }
 - (IBAction) showCategories:(id)s { [self go:pageOf(@"categories", @"Categories")]; }
 - (IBAction) showLibrary:(id)s { [self go:pageOf(@"library", @"Library")]; }
+- (IBAction) showUpdates:(id)s { [self go:pageOf(@"updates", @"Updates")]; }
 - (IBAction) focusSearch:(id)s { [window makeFirstResponder:searchField]; }
 - (IBAction) reloadPage:(id)s { if (page) [self show:page]; }
 - (BOOL) onlyRunnable { return onlyRunnable; }
@@ -371,9 +396,12 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
 
 - (void) loadShelf:(GDShelf *)sh url:(NSURL *)u
 {
+    GDHTTPRequest *r;
     sh->loading = YES;
     [(GDGridView *)pageView reload];
-    [[self request:u tag:ReqShelf info:sh] start];
+    r = [self request:u tag:ReqShelf info:sh];
+    [r setCacheTTL:6 * 3600];
+    [r start];
 }
 
 - (void) runSearch:(NSString *)keys page:(int)n shelf:(GDShelf *)sh
@@ -383,6 +411,7 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
     [(GDGridView *)pageView reload];
     if (n > 0) {
         r = [self request:[GDGarden searchResultsURL:keys page:n] tag:ReqSearch info:sh];
+        [r setCacheTTL:3600];
     } else if (searchToken == nil) {
         /* Drupal wants a form token and the session cookie that came with it. */
         r = [self request:[GDGarden listURLForSection:@"games" selector:@"all" page:0]
@@ -416,6 +445,11 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
         return;
     }
     sh->loading = NO;
+    if ([r tag] == ReqFeed) {
+        [sh->entries addObjectsFromArray:[r error] ? [NSArray array] : [GDGarden parseFeed:[r data]]];
+        [(GDGridView *)pageView reload];
+        return;
+    }
     if ([r error] == nil)
         L = [r tag] == ReqSearch ? [GDGarden parseSearch:[r data]] : [GDGarden parseListing:[r data]];
     if (L == nil) {
@@ -508,6 +542,16 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
     [[GDInstaller sharedInstaller] installFile:f ofItem:d];
 }
 
+- (void) itemView:(id)v openItem:(GDItem *)item
+{
+    [self gridView:nil openItem:item];
+}
+
+- (void) itemView:(id)v openListing:(NSDictionary *)p
+{
+    [self go:p];
+}
+
 - (void) itemView:(id)v openInstalled:(NSDictionary *)entry
 {
     NSString *launch = [entry objectForKey:@"launch"];
@@ -553,18 +597,75 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
     [self go:[NSDictionary dictionaryWithObjectsAndKeys:@"item", @"kind", path, @"path", @"", @"title", nil]];
 }
 
-- (void) jobChanged:(NSNotification *)n
+/* Labels on the Library/Updates tabs and the Dock icon: progress while
+ * downloading, else the number of updates.  NSDockTile is Leopard-only, so
+ * the application icon image itself is redrawn (works on Tiger too). */
+- (void) updateBadges
 {
-    GDInstallJob *j = [n object];
-    int active = 0;
-    unsigned i;
     NSArray *jobs = [[GDInstaller sharedInstaller] jobs];
-    for (i = 0; i < [jobs count]; i++)
-        if ([[jobs objectAtIndex:i] isActive])
+    int active = 0, nupd = (int)[[[GDInstaller sharedInstaller] updates] count];
+    long long done = 0, total = 0;
+    double now = CFAbsoluteTimeGetCurrent();
+    unsigned i;
+    NSImage *img;
+    NSString *badge;
+    NSRect r = NSMakeRect(0, 0, 128, 128);
+
+    for (i = 0; i < [jobs count]; i++) {
+        GDInstallJob *j = [jobs objectAtIndex:i];
+        if ([j isActive]) {
             active++;
+            done += j->bytesDone;
+            total += j->bytesTotal > 0 ? j->bytesTotal : (long long)[[j file] sizeBytes];
+        }
+    }
     [sectionControl setLabel:active ? [NSString stringWithFormat:@"Library (%d)", active] : @"Library"
                   forSegment:SegLibrary];
-    (void)j;
+    [sectionControl setLabel:nupd ? [NSString stringWithFormat:@"Updates (%d)", nupd] : @"Updates"
+                  forSegment:SegUpdates];
+
+    if (active && now - lastDockDraw < 0.5)
+        return;
+    lastDockDraw = now;
+    if (dockIcon == nil)
+        dockIcon = [[NSImage imageNamed:@"NSApplicationIcon"] copy];
+    badge = active ? [NSString stringWithFormat:@"%d", active] : (nupd ? [NSString stringWithFormat:@"%d", nupd] : nil);
+    if (!active && badge == nil) {
+        if (dockDrawn)
+            [NSApp setApplicationIconImage:dockIcon];
+        dockDrawn = NO;
+        return;
+    }
+    img = [[[NSImage alloc] initWithSize:r.size] autorelease];
+    [img lockFocus];
+    [dockIcon drawInRect:r fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+    if (active && total > 0) {
+        NSRect bar = NSMakeRect(14, 10, 100, 14);
+        [[NSColor colorWithCalibratedWhite:0.15 alpha:0.85] set];
+        [GDRoundRect(bar, 7) fill];
+        [[NSColor colorWithCalibratedRed:0.30 green:0.62 blue:1 alpha:1] set];
+        [GDRoundRect(NSMakeRect(16, 12, 96.0 * MIN(1.0, (double)done / total), 10), 5) fill];
+    }
+    if (badge) {
+        NSDictionary *a = [NSDictionary dictionaryWithObjectsAndKeys:[NSFont boldSystemFontOfSize:26],
+                              NSFontAttributeName, [NSColor whiteColor], NSForegroundColorAttributeName, nil];
+        NSSize ts = [badge sizeWithAttributes:a];
+        float w = MAX(40, ts.width + 20);
+        NSRect b = NSMakeRect(128 - w - 2, 128 - 42, w, 40);
+        [[NSColor colorWithCalibratedRed:0.88 green:0.12 blue:0.10 alpha:1] set];
+        [GDRoundRect(b, 20) fill];
+        [[NSColor whiteColor] set];
+        [GDRoundRect(NSInsetRect(b, 1.5, 1.5), 18.5) stroke];
+        [badge drawAtPoint:NSMakePoint(NSMidX(b) - ts.width / 2, NSMidY(b) - ts.height / 2) withAttributes:a];
+    }
+    [img unlockFocus];
+    [NSApp setApplicationIconImage:img];
+    dockDrawn = YES;
+}
+
+- (void) jobChanged:(NSNotification *)n
+{
+    [self updateBadges];
 }
 
 @end

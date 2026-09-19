@@ -73,6 +73,17 @@ int main(int argc, const char **argv)
                 printf("   mirrors: %s\n", [[[f mirrors] componentsJoinedByString:@" "] UTF8String]);
             }
             printf("--- description\n%s\n", [[D descriptionText] UTF8String]);
+            printf("author path: %s  category path: %s\n", [[D authorPath] ?: @"" UTF8String],
+                   [[D categoryPath] ?: @"" UTF8String]);
+            for (i = 0; i < (int)[[D seeAlso] count]; i++)
+                printf("see also: %s %s\n", [[[[D seeAlso] objectAtIndex:i] path] UTF8String],
+                       [[[[D seeAlso] objectAtIndex:i] title] UTF8String]);
+            for (i = 0; i < (int)[[D reviews] count] && i < 3; i++) {
+                NSDictionary *rv = [[D reviews] objectAtIndex:i];
+                printf("review by %s on %s: %.80s\n", [[rv objectForKey:@"author"] UTF8String],
+                       [[rv objectForKey:@"date"] UTF8String], [[rv objectForKey:@"text"] UTF8String]);
+            }
+            printf("reviews: %u\n", (unsigned)[[D reviews] count]);
         }
     } else if ([cmd isEqualToString:@"search"] && argc > 2) {
         NSString *keys = [NSString stringWithUTF8String:argv[2]];
@@ -86,6 +97,16 @@ int main(int argc, const char **argv)
                   [body dataUsingEncoding:NSUTF8StringEncoding]);
         if (d)
             printListing([GDGarden parseSearch:d]);
+    } else if ([cmd isEqualToString:@"feed"]) {
+        NSArray *news;
+        int i;
+        d = fetch([GDGarden feedURL], nil);
+        news = d ? [GDGarden parseFeed:d] : nil;
+        for (i = 0; i < (int)[news count]; i++) {
+            GDNewsItem *n = [news objectAtIndex:i];
+            printf("%-45s %-24s %s | %s\n", [[n path] UTF8String], [[[n published] description] UTF8String],
+                   [[n title] UTF8String], [[n thumbURL] ?: @"" UTF8String]);
+        }
     } else if ([cmd isEqualToString:@"get"] && argc > 3) {
         GDHTTPRequest *r = [GDHTTPRequest requestWithURL:
                                [NSURL URLWithString:[NSString stringWithUTF8String:argv[2]]]];
