@@ -1,0 +1,20 @@
+The Garden
+==========
+
+Software, pictures and descriptions come from the Macintosh Garden
+(https://macintoshgarden.org), a community archive. The Garden is an
+independent client and is not affiliated with it.
+
+Archive support: XADMaster and UniversalDetector
+------------------------------------------------
+The Garden unpacks archives with XADMaster, the engine of The Unarchiver
+by Dag Agren (https://theunarchiver.com), and UniversalDetector. They are
+included unmodified, as the dynamic frameworks shipped with The Unarchiver
+3.11.1, in The Garden.app/Contents/Frameworks, under the GNU Lesser General
+Public License version 2.1 (https://www.gnu.org/licenses/lgpl-2.1.html).
+You may replace them with your own builds of the same frameworks. Source:
+https://github.com/MacPaw/XADMaster and
+https://github.com/MacPaw/universal-detector
+
+Networking: libcurl (curl license), OpenSSL 3 (Apache License 2.0),
+zlib (zlib license), all statically linked.

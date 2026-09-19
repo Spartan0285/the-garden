@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>apps</key>
+	<array>
+		<dict>
+			<key>name</key>
+			<string>Business &amp; Productivity</string>
+			<key>path</key>
+			<string>/apps/business-productivity</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Database</string>
+			<key>path</key>
+			<string>/apps/database</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Development Tools</string>
+			<key>path</key>
+			<string>/apps/development-tools</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Drivers &amp; Hardware Support</string>
+			<key>path</key>
+			<string>/apps/drivers-hardware-support</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Educational</string>
+			<key>path</key>
+			<string>/apps/educational</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Emulators</string>
+			<key>path</key>
+			<string>/apps/emulators</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Finance</string>
+			<key>path</key>
+			<string>/apps/finance-0</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Internet &amp; Communications</string>
+			<key>path</key>
+			<string>/apps/internet</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Music &amp; Sound</string>
+			<key>path</key>
+			<string>/apps/music-sound</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Novelties &amp; Fun</string>
+			<key>path</key>
+			<string>/apps/novelties-fun</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Operating Systems</string>
+			<key>path</key>
+			<string>/apps/operating-systems</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Reference</string>
+			<key>path</key>
+			<string>/apps/reference</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Science &amp; Math</string>
+			<key>path</key>
+			<string>/apps/science-math</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Screen Savers</string>
+			<key>path</key>
+			<string>/apps/screen-savers</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Software Compilations</string>
+			<key>path</key>
+			<string>/apps/software-compilations</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Utilities</string>
+			<key>path</key>
+			<string>/apps/utilities</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Video</string>
+			<key>path</key>
+			<string>/apps/video</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Visual Arts &amp; Graphics</string>
+			<key>path</key>
+			<string>/apps/visual-arts-graphics</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Word Processing &amp; Publishing</string>
+			<key>path</key>
+			<string>/apps/word-processing</string>
+		</dict>
+	</array>
+	<key>games</key>
+	<array>
+		<dict>
+			<key>name</key>
+			<string>Action</string>
+			<key>path</key>
+			<string>/games/action</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Adventure</string>
+			<key>path</key>
+			<string>/games/adventure</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Arcade</string>
+			<key>path</key>
+			<string>/games/arcade</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Board Game</string>
+			<key>path</key>
+			<string>/games/board</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Books &amp; Multimedia</string>
+			<key>path</key>
+			<string>/games/books-multimedia</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Card &amp; Casino</string>
+			<key>path</key>
+			<string>/games/card-casino</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Creative</string>
+			<key>path</key>
+			<string>/games/creative</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Early Childhood</string>
+			<key>path</key>
+			<string>/games/early-childhood</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Educational</string>
+			<key>path</key>
+			<string>/games/educational</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Flight Simulation</string>
+			<key>path</key>
+			<string>/games/flight-simulation</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>FPS</string>
+			<key>path</key>
+			<string>/games/fps</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Game Compilations</string>
+			<key>path</key>
+			<string>/games/game-compilations</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Interactive Fiction</string>
+			<key>path</key>
+			<string>/games/interactive-fiction</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Puzzle</string>
+			<key>path</key>
+			<string>/games/puzzle</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Racing</string>
+			<key>path</key>
+			<string>/games/racing</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>RPG</string>
+			<key>path</key>
+			<string>/games/rpg</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Simulation</string>
+			<key>path</key>
+			<string>/games/simulation</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Sports</string>
+			<key>path</key>
+			<string>/games/sports</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Strategy</string>
+			<key>path</key>
+			<string>/games/strategy</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>Game Editors &amp; Tools</string>
+			<key>path</key>
+			<string>/games/tools</string>
+		</dict>
+		<dict>
+			<key>name</key>
+			<string>World Builder</string>
+			<key>path</key>
+			<string>/games/world-builder</string>
+		</dict>
+	</array>
+</dict>
+</plist>

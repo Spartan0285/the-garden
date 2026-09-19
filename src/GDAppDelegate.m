@@ -1,0 +1,224 @@
+#import "GDAppDelegate.h"
+#import "GDStoreController.h"
+#import "GDInstaller.h"
+#import "GDGarden.h"
+#import "GDCatalog.h"
+
+static NSMenu *addSubmenu(NSMenu *bar, NSString *title)
+{
+    NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:title action:NULL keyEquivalent:@""] autorelease];
+    NSMenu *m = [[[NSMenu alloc] initWithTitle:title] autorelease];
+    [item setSubmenu:m];
+    [bar addItem:item];
+    return m;
+}
+
+static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key)
+{
+    NSMenuItem *it = [[[NSMenuItem alloc] initWithTitle:title action:action
+                                          keyEquivalent:key ?: @""] autorelease];
+    [m addItem:it];
+    return it;
+}
+
+@implementation GDAppDelegate
+
+- (void) buildMainMenu
+{
+    NSMenu *bar = [[[NSMenu alloc] initWithTitle:@"MainMenu"] autorelease];
+    NSMenu *m;
+    NSMenuItem *it;
+
+    [NSApp setMainMenu:bar];
+    m = addSubmenu(bar, @"The Garden");
+    addItem(m, @"About The Garden", @selector(orderFrontStandardAboutPanel:), nil);
+    [m addItem:[NSMenuItem separatorItem]];
+    addItem(m, @"Hide The Garden", @selector(hide:), @"h");
+    it = addItem(m, @"Hide Others", @selector(hideOtherApplications:), @"h");
+    [it setKeyEquivalentModifierMask:NSCommandKeyMask | NSAlternateKeyMask];
+    addItem(m, @"Show All", @selector(unhideAllApplications:), nil);
+    [m addItem:[NSMenuItem separatorItem]];
+    addItem(m, @"Quit The Garden", @selector(terminate:), @"q");
+    /* Without a nib, Tiger only treats this as the application menu once told. */
+    if ([NSApp respondsToSelector:@selector(setAppleMenu:)])
+        [NSApp performSelector:@selector(setAppleMenu:) withObject:m];
+
+    m = addSubmenu(bar, @"File");
+    addItem(m, @"Close Window", @selector(performClose:), @"w");
+
+    m = addSubmenu(bar, @"Edit");
+    addItem(m, @"Undo", @selector(undo:), @"z");
+    addItem(m, @"Redo", @selector(redo:), @"Z");
+    [m addItem:[NSMenuItem separatorItem]];
+    addItem(m, @"Cut", @selector(cut:), @"x");
+    addItem(m, @"Copy", @selector(copy:), @"c");
+    addItem(m, @"Paste", @selector(paste:), @"v");
+    addItem(m, @"Select All", @selector(selectAll:), @"a");
+
+    m = addSubmenu(bar, @"Store");
+    addItem(m, @"Featured", @selector(showFeatured:), @"1");
+    addItem(m, @"Applications", @selector(showApps:), @"2");
+    addItem(m, @"Games", @selector(showGames:), @"3");
+    addItem(m, @"Categories", @selector(showCategories:), @"4");
+    addItem(m, @"Library", @selector(showLibrary:), @"5");
+    [m addItem:[NSMenuItem separatorItem]];
+    addItem(m, @"Back", @selector(goBack:), @"[");
+    addItem(m, @"Forward", @selector(goForward:), @"]");
+    addItem(m, @"Search", @selector(focusSearch:), @"f");
+    addItem(m, @"Reload", @selector(reloadPage:), @"r");
+
+    m = addSubmenu(bar, @"View");
+    addItem(m, @"Only Show Software That Runs on This Mac", @selector(toggleOnlyRunnable:), @"R");
+
+    m = addSubmenu(bar, @"Window");
+    addItem(m, @"Minimize", @selector(performMiniaturize:), @"m");
+    addItem(m, @"Zoom", @selector(performZoom:), nil);
+    addItem(m, @"Store Window", @selector(showStoreWindow:), @"0");
+    [NSApp setWindowsMenu:m];
+}
+
+- (void) applicationDidFinishLaunching:(NSNotification *)n
+{
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    NSString *debugPage = [d stringForKey:@"GDDebugPage"];
+    store = [[GDStoreController alloc] init];
+    [store showWindow];
+    [NSApp activateIgnoringOtherApps:YES];
+
+    /* Test hook: open a page, wait until it has settled, write a PNG of the
+     * window and optionally quit.  Used over ssh by scripts/remote-run.sh. */
+    if ([debugPage length]) {
+        if ([debugPage hasPrefix:@"/"])
+            [store go:[NSDictionary dictionaryWithObjectsAndKeys:@"item", @"kind", debugPage, @"path",
+                          @"", @"title", nil]];
+        else if ([debugPage hasPrefix:@"search:"])
+            [store go:[NSDictionary dictionaryWithObjectsAndKeys:@"search", @"kind",
+                          [debugPage substringFromIndex:7], @"keys", @"Search", @"title", nil]];
+        else if ([debugPage isEqualToString:@"apps"]) [store showApps:nil];
+        else if ([debugPage isEqualToString:@"games"]) [store showGames:nil];
+        else if ([debugPage isEqualToString:@"categories"]) [store showCategories:nil];
+        else if ([debugPage isEqualToString:@"library"]) [store showLibrary:nil];
+    }
+    if ([d stringForKey:@"GDDebugSnapshotPath"])
+        debugTimer = [[NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(debugTick:)
+                                                     userInfo:nil repeats:YES] retain];
+}
+
+- (void) debugTick:(NSTimer *)t
+{
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    static int ticks;
+    NSString *get = [d stringForKey:@"GDDebugInstallFile"];
+    ticks++;
+    {
+        NSArray *jobs = [[GDInstaller sharedInstaller] jobs];
+        unsigned k, active = 0;
+        for (k = 0; k < [jobs count]; k++)
+            if ([[jobs objectAtIndex:k] isActive])
+                active++;
+        debugQuiet = ([store pendingRequests] == 0 && [[GDCatalog sharedCatalog] pendingLoads] == 0 &&
+                      active == 0 && (get == nil || debugInstallStarted)) ? debugQuiet + 1 : 0;
+    }
+    /* Optional: start the install of file N of the item page once loaded. */
+    if (get && ticks >= 6 && !debugInstallStarted) {
+        NSView *v = [[[store window] contentView] documentView];
+        if ([v respondsToSelector:@selector(detail)]) {
+            GDItemDetail *det = [v performSelector:@selector(detail)];
+            int idx = [get intValue];
+            GDFile *f = nil;
+            if (det && [get isEqualToString:@"best"])
+                [GDCompat verdictForItem:det bestFile:&f];
+            else if (det && idx < (int)[[det files] count])
+                f = [[det files] objectAtIndex:idx];
+            if (f) {
+                [[GDInstaller sharedInstaller] installFile:f ofItem:det];
+                debugInstallStarted = YES;
+                debugQuiet = 0;
+                ticks = MIN(ticks, 6);
+            }
+        }
+    }
+    if ((debugQuiet >= 4 && ticks >= [d integerForKey:@"GDDebugMinSeconds"]) || ticks > 240) {
+        NSView *view = [[[store window] contentView] superview];
+        NSBitmapImageRep *bm;
+        [debugTimer invalidate];
+        [debugTimer release];
+        debugTimer = nil;
+        if ([d integerForKey:@"GDDebugScroll"]) {
+            NSScrollView *sv = (NSScrollView *)[[store window] contentView];
+            [[sv documentView] scrollPoint:NSMakePoint(0, [d integerForKey:@"GDDebugScroll"])];
+            [[store window] display];
+        }
+        [[store window] displayIfNeeded];
+        bm = [view bitmapImageRepForCachingDisplayInRect:[view bounds]];
+        [view cacheDisplayInRect:[view bounds] toBitmapImageRep:bm];
+        [[bm representationUsingType:NSPNGFileType properties:nil]
+            writeToFile:[d stringForKey:@"GDDebugSnapshotPath"] atomically:YES];
+        {
+            NSView *doc = [(NSScrollView *)[[store window] contentView] documentView];
+            NSLog(@"The Garden: snapshot written after %ds; doc %@ frame %@ visible %@ subviews %d",
+                  ticks, [doc class], NSStringFromRect([doc frame]),
+                  NSStringFromRect([doc visibleRect]), (int)[[doc subviews] count]);
+            if ([doc respondsToSelector:@selector(shelves)]) {
+                NSArray *sh = [doc performSelector:@selector(shelves)];
+                unsigned k;
+                for (k = 0; k < [sh count]; k++) {
+                    id s = [sh objectAtIndex:k];
+                    NSLog(@"The Garden:  shelf %@", [s description]);
+                }
+            }
+        }
+        if ([d boolForKey:@"GDDebugQuit"])
+            [NSApp terminate:nil];
+    }
+}
+
+- (void) showStoreWindow:(id)sender { [store showWindow]; }
+
+- (BOOL) applicationShouldHandleReopen:(NSApplication *)a hasVisibleWindows:(BOOL)v
+{
+    [store showWindow];
+    return YES;
+}
+
+/* Menu actions for the store go to the controller. */
+- (id) forwardingTargetForSelector:(SEL)s { return store; }
+- (BOOL) respondsToSelector:(SEL)s
+{
+    return [super respondsToSelector:s] || [store respondsToSelector:s];
+}
+- (NSMethodSignature *) methodSignatureForSelector:(SEL)s
+{
+    return [super methodSignatureForSelector:s] ?: [store methodSignatureForSelector:s];
+}
+- (void) forwardInvocation:(NSInvocation *)inv
+{
+    if ([store respondsToSelector:[inv selector]])
+        [inv invokeWithTarget:store];
+    else
+        [super forwardInvocation:inv];
+}
+- (BOOL) validateMenuItem:(NSMenuItem *)m
+{
+    if ([store respondsToSelector:[m action]])
+        return [store validateMenuItem:m];
+    return YES;
+}
+
+- (NSApplicationTerminateReply) applicationShouldTerminate:(NSApplication *)a
+{
+    NSArray *jobs = [[GDInstaller sharedInstaller] jobs];
+    unsigned i, active = 0;
+    for (i = 0; i < [jobs count]; i++)
+        if ([[jobs objectAtIndex:i] isActive])
+            active++;
+    if (active && ![[NSUserDefaults standardUserDefaults] boolForKey:@"GDDebugQuit"]) {
+        int r = NSRunAlertPanel(@"Downloads are in progress.",
+                                @"Quitting now stops them.", @"Quit", @"Cancel", nil);
+        if (r != NSAlertDefaultReturn)
+            return NSTerminateCancel;
+    }
+    return NSTerminateNow;
+}
+
+@end
