@@ -94,6 +94,7 @@ app: $(BUILD)/$(EXEC) Resources/Info.plist Resources/cacert.pem
 	@cp Resources/cacert.pem Resources/*.plist "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@rm -f "$(APP)/Contents/Resources/Info.plist"
 	@cp Resources/*.icns Resources/*.txt "$(APP)/Contents/Resources/" 2>/dev/null; true
+	@ditto Resources/Licenses "$(APP)/Contents/Resources/Licenses"
 	@mkdir -p "$(APP)/Contents/Frameworks"
 	@ditto $(VENDOR)/XADMaster.framework "$(APP)/Contents/Frameworks/XADMaster.framework"
 	@ditto $(VENDOR)/UniversalDetector.framework "$(APP)/Contents/Frameworks/UniversalDetector.framework"

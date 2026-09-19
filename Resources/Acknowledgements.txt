@@ -5,6 +5,10 @@ Software, pictures and descriptions come from the Macintosh Garden
 (https://macintoshgarden.org), a community archive. The Garden is an
 independent client and is not affiliated with it.
 
+The Garden is free software under the MIT license. The full license texts of
+The Garden and of the components below are in the Licenses folder next to
+this file.
+
 Archive support: XADMaster and UniversalDetector
 ------------------------------------------------
 The Garden unpacks archives with XADMaster, the engine of The Unarchiver

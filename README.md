@@ -29,6 +29,11 @@ Captain Polliwog's `scripts/build-deps.sh`).
 `make ARCHS=ppc` builds PowerPC only. `tools/gdtool` exercises the site client
 from the command line (list / item / search / get).
 
+## License
+
+MIT (see `LICENSE`). Third-party components and their licenses are listed in
+`THIRD-PARTY-NOTICES.md`.
+
 ## Third-party code
 
 `vendor/XADMaster.framework` and `vendor/UniversalDetector.framework` are the
