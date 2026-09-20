@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.2.3</string>
+	<string>0.2.4</string>
 	<key>build</key>
-	<string>5</string>
+	<string>6</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2.3/TheGarden-0.2.3.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2.4/TheGarden-0.2.4.zip</string>
 	<key>sha256</key>
-	<string>6cd71113389819d759bdecd04782f3daa1a2793a6cea2dbe00afd6eb65ed2a5a</string>
+	<string>85599e11ea6807ccb1efd4292b6b55d5976afcdfaa78e041eced9f66fe457db5</string>
 	<key>size</key>
-	<string>6785080</string>
+	<string>6800381</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>The application icon was blank on Leopard: the 256 and 512 pixel sizes are now JPEG 2000, which is what 10.5 reads.</string>
+	<string>Get is now a menu of every download, with the suggested one on the button. A title stays in Updates, showing progress, until its update has finished installing. And there is a Send Feedback window.</string>
 	<key>signature</key>
-	<string>XIgCKG8/nJxTZyIwyOIFkV7O+vHNrBAocif2EzFLL7OEogwcAWfLMce5fei9zx7jj0xyoZUFp5SkPGhd6pW3Ag==</string>
+	<string>p9NAcOknlpJ7Bo92YPdR3cr+j8awBpPJJBkGfbKRBIbKo1ZKm9ntkw/sP170mKvrm/Q33vRjMMPAgJwLR/o+Cg==</string>
 </dict>
 </plist>
