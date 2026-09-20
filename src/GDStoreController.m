@@ -3,6 +3,7 @@
 #import "GDItemView.h"
 #import "GDLibraryView.h"
 #import "GDGarden.h"
+#import "GDWebWindow.h"
 #import "GDHTTP.h"
 #import "GDCatalog.h"
 #import "GDInstaller.h"
@@ -305,6 +306,27 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     [self show:p];
 }
 
+/* The page being shown, as it stands on macintoshgarden.org: the site is the
+ * whole point of the app, and some of it (comments, an account) is only there. */
+- (IBAction) viewOnSite:(id)sender
+{
+    NSString *kind = [page objectForKey:@"kind"];
+    NSURL *u = nil;
+
+    if ([kind isEqualToString:@"item"])
+        u = [GDGarden absoluteURL:[page objectForKey:@"path"]];
+    else if ([kind isEqualToString:@"search"])
+        u = [GDGarden searchResultsURL:[page objectForKey:@"keys"] page:0];
+    else if ([kind isEqualToString:@"apps"] || [kind isEqualToString:@"games"])
+        u = [GDGarden listURLForSection:kind selector:@"all" page:0];
+    else if ([kind isEqualToString:@"list"])
+        u = [GDGarden listURLForSection:[page objectForKey:@"section"]
+                               selector:[page objectForKey:@"selector"] page:0];
+    if (u == nil)
+        u = [GDGarden absoluteURL:@"/"];
+    [GDWebWindow openURL:u title:[page objectForKey:@"title"]];
+}
+
 - (void) navClicked:(id)sender
 {
     if ([sender selectedSegment] == 0)
@@ -416,6 +438,7 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
         /* Drupal wants a form token and the session cookie that came with it. */
         r = [self request:[GDGarden listURLForSection:@"games" selector:@"all" page:0]
                       tag:ReqSearchToken info:sh];
+        [r setUsesSession:YES];
     } else {
         NSString *body = [NSString stringWithFormat:@"keys=%@&form_token=%@&form_id=search_form&op=Search",
                              GDFormEncode(keys), searchToken];

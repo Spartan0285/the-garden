@@ -16,7 +16,7 @@ APP       = $(BUILD)/$(APP_NAME).app
 
 export MACOSX_DEPLOYMENT_TARGET = 10.4
 
-CORE    = src/GDHTTP.m src/GDGarden.m
+CORE    = src/GDHTTP.m src/GDGarden.m src/GDAccelerator.m
 APPSRC  = $(filter-out $(CORE),$(wildcard src/*.m))
 HEADERS = $(wildcard src/*.h)
 
@@ -27,8 +27,8 @@ VENDOR  = vendor
 CFLAGS  = -isysroot $(SDK) -Os -Wall -Wno-unused-parameter -Isrc -I$(SDK)/usr/include/libxml2 -F$(VENDOR)
 CFLAGS_ppc  = -mcpu=G3 -mtune=G4
 CFLAGS_i386 = -march=prescott
-LDBASE  = -isysroot $(SDK) -Wl,-syslibroot,$(SDK) -lxml2 -framework SystemConfiguration -framework CoreFoundation
-LDAPP   = $(LDBASE) -framework Cocoa -framework Security -F$(VENDOR) -framework XADMaster -framework UniversalDetector
+LDBASE  = -isysroot $(SDK) -Wl,-syslibroot,$(SDK) -lxml2 -framework SystemConfiguration -framework CoreFoundation -framework Security -framework ApplicationServices
+LDAPP   = $(LDBASE) -framework Cocoa -framework WebKit -F$(VENDOR) -framework XADMaster -framework UniversalDetector
 LDTOOL  = $(LDBASE) -framework Foundation
 DEPS_LIBS = libcurl.a libssl.a libcrypto.a libz.a
 

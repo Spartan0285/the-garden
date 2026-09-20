@@ -8,6 +8,7 @@
     NSTimer *debugTimer;
     int debugQuiet;
     BOOL debugInstallStarted;
+    BOOL debugWebOpened;
 }
 - (void) buildMainMenu;
 @end

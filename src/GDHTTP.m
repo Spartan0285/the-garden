@@ -1,19 +1,43 @@
 #import "GDHTTP.h"
+#import "GDAccelerator.h"
 #include <curl/curl.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <openssl/evp.h>
 
-#define GD_HTTP_MAX_ACTIVE 4
+/* What to do after an attempt that did not produce the site's answer. */
+enum { GDRestartNone = 0, GDRestartDirect, GDRestartRedirect, GDRestartAgain };
 
 static CURLSH *gShare;
+static CURLM *gMulti;
 static pthread_mutex_t gShareLocks[CURL_LOCK_DATA_LAST];
-static pthread_mutex_t gSlotLock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t gSlotCond = PTHREAD_COND_INITIALIZER;
-static int gActive;
 static NSString *gCABundle;
+
+/* The network thread's queues. */
+static pthread_mutex_t gQueueLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t gQueueCond = PTHREAD_COND_INITIALIZER;
+static NSMutableArray *gPending, *gActive, *gCancelled;
+static BOOL gThreadStarted;
+
+@interface GDHTTPRequest (Network)
+- (BOOL) cacheable;
+- (BOOL) preflightCache;
+- (BOOL) useCachedBodyAt:(NSString *)path meta:(NSDictionary *)meta;
+- (BOOL) useRevalidatedCache;
+- (BOOL) useStaleCache;
+- (void) storeInCache;
+- (BOOL) prepareHandle;
+- (void *) easyHandle;
+- (void) finishWithCurlCode:(int)code;
+- (void) releaseHandle;
+- (BOOL) takeRestart;
+- (void) deliver;
+@end
 
 static void shareLock(CURL *h, curl_lock_data d, curl_lock_access a, void *u)
 {
@@ -41,6 +65,19 @@ static void GDHTTPSetup(void)
     curl_share_setopt(gShare, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
     curl_share_setopt(gShare, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
     curl_share_setopt(gShare, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+
+    gMulti = curl_multi_init();
+    /* The Garden talks to one site and a handful of mirrors.  Four connections
+     * to a host is as much as a store page needs and keeps the site's load
+     * where a person browsing would put it; an idle connection costs little
+     * even on a 256MB G3. */
+    curl_multi_setopt(gMulti, CURLMOPT_MAX_TOTAL_CONNECTIONS, 8L);
+    curl_multi_setopt(gMulti, CURLMOPT_MAX_HOST_CONNECTIONS, 4L);
+    curl_multi_setopt(gMulti, CURLMOPT_MAXCONNECTS, 12L);
+
+    gPending = [[NSMutableArray alloc] init];
+    gActive = [[NSMutableArray alloc] init];
+    gCancelled = [[NSMutableArray alloc] init];
 
     /* The app bundle's copy; a command-line tool finds it next to itself. */
     gCABundle = [[[NSBundle mainBundle] pathForResource:@"cacert" ofType:@"pem"] retain];
@@ -91,6 +128,148 @@ NSString *GDFormEncode(NSString *s)
     return [r autorelease];
 }
 
+/* ---- the network thread -------------------------------------------------
+ *
+ * One thread, one multi handle, for the life of the process.  Requests are
+ * handed over under gQueueLock; curl_multi_wakeup gets the thread out of its
+ * poll without waiting for the timeout.
+ */
+
+static void engineRun(void)
+{
+    int running = 0;
+    long hostLimit = 4;
+
+    while (1) {
+        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+        NSArray *starting, *stopping;
+        unsigned i;
+        int pending = 0;
+        long wanted;
+        CURLMsg *m;
+
+        pthread_mutex_lock(&gQueueLock);
+        while ([gPending count] == 0 && [gCancelled count] == 0 && [gActive count] == 0)
+            pthread_cond_wait(&gQueueCond, &gQueueLock);
+        starting = [gPending copy];
+        stopping = [gCancelled copy];
+        [gPending removeAllObjects];
+        [gCancelled removeAllObjects];
+        pthread_mutex_unlock(&gQueueLock);
+
+        for (i = 0; i < [stopping count]; i++) {
+            GDHTTPRequest *r = [stopping objectAtIndex:i];
+            if (![gActive containsObject:r])
+                continue;
+            curl_multi_remove_handle(gMulti, [r easyHandle]);
+            [r finishWithCurlCode:CURLE_ABORTED_BY_CALLBACK];
+            [r releaseHandle];
+            [[r retain] autorelease];
+            [gActive removeObject:r];
+            [r deliver];
+        }
+        [stopping release];
+
+        /* Through PowerEmu every request goes to one host, so the usual four
+         * connections per host would queue a page's pictures behind it. */
+        wanted = [GDAccelerator baseURL] != nil ? 8 : 4;
+        if (wanted != hostLimit) {
+            hostLimit = wanted;
+            curl_multi_setopt(gMulti, CURLMOPT_MAX_HOST_CONNECTIONS, hostLimit);
+        }
+
+        for (i = 0; i < [starting count]; i++) {
+            GDHTTPRequest *r = [starting objectAtIndex:i];
+            if ([r isCancelled]) {
+                [r finishWithCurlCode:CURLE_ABORTED_BY_CALLBACK];
+                [r deliver];
+                continue;
+            }
+            if ([r preflightCache]) {
+                [r deliver];
+                continue;
+            }
+            if ([r prepareHandle] && curl_multi_add_handle(gMulti, [r easyHandle]) == CURLM_OK) {
+                [gActive addObject:r];
+            } else {
+                [r finishWithCurlCode:CURLE_FAILED_INIT];
+                [r releaseHandle];
+                [r deliver];
+            }
+        }
+        [starting release];
+
+        curl_multi_perform(gMulti, &running);
+
+        while ((m = curl_multi_info_read(gMulti, &pending)) != NULL) {
+            GDHTTPRequest *r = nil;
+            if (m->msg != CURLMSG_DONE)
+                continue;
+            curl_easy_getinfo(m->easy_handle, CURLINFO_PRIVATE, &r);
+            if (r == nil)
+                continue;
+            [[r retain] autorelease];
+            [r finishWithCurlCode:(int)m->data.result];
+            curl_multi_remove_handle(gMulti, m->easy_handle);
+            [r releaseHandle];
+            [gActive removeObject:r];
+            if ([r takeRestart]) {
+                /* PowerEmu failed, or answered a redirect it does not follow:
+                 * around the loop once more. */
+                pthread_mutex_lock(&gQueueLock);
+                [gPending addObject:r];
+                pthread_mutex_unlock(&gQueueLock);
+            } else {
+                [r deliver];
+            }
+        }
+
+        if ([gActive count] > 0) {
+            int descriptors = 0;
+            curl_multi_poll(gMulti, NULL, 0, 250, &descriptors);
+        }
+        [pool release];
+    }
+}
+
+@interface GDHTTPEngine : NSObject
++ (void) threadMain:(id)ignored;
+@end
+
+@implementation GDHTTPEngine
++ (void) threadMain:(id)ignored
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    engineRun();
+    [pool release];
+}
+@end
+
+static void engineEnqueue(GDHTTPRequest *r)
+{
+    pthread_mutex_lock(&gQueueLock);
+    [gPending addObject:r];
+    if (!gThreadStarted) {
+        gThreadStarted = YES;
+        [NSThread detachNewThreadSelector:@selector(threadMain:)
+                                 toTarget:[GDHTTPEngine class] withObject:nil];
+    }
+    pthread_cond_signal(&gQueueCond);
+    pthread_mutex_unlock(&gQueueLock);
+    curl_multi_wakeup(gMulti);
+}
+
+static void engineCancel(GDHTTPRequest *r)
+{
+    if (!gThreadStarted)
+        return;
+    pthread_mutex_lock(&gQueueLock);
+    [gCancelled addObject:r];
+    pthread_cond_signal(&gQueueCond);
+    pthread_mutex_unlock(&gQueueLock);
+    curl_multi_wakeup(gMulti);
+}
+
 @implementation GDHTTPRequest
 
 + (void) initialize
@@ -126,19 +305,33 @@ NSString *GDFormEncode(NSString *s)
 
 - (void) dealloc
 {
+    [self releaseHandle];
     [url release];
     [postBody release];
     [destinationPath release];
+    [partialPath release];
     [userInfo release];
     [data release];
     [error release];
     [effectiveURL release];
     [contentType release];
+    [cachedETag release];
+    [cachedModified release];
+    [newETag release];
+    [newModified release];
+    [location release];
+    [responseHeaders release];
+    [requestHeaders release];
     [super dealloc];
 }
 
 - (void) setPostBody:(NSData *)body { [postBody autorelease]; postBody = [body copy]; }
 - (void) setDestinationPath:(NSString *)p { [destinationPath autorelease]; destinationPath = [p copy]; }
+- (void) setUsesSession:(BOOL)flag { usesSession = flag; }
+- (void) setWantsResponseHeaders:(BOOL)flag { wantsHeaders = flag; }
+- (void) setRequestHeaders:(NSDictionary *)h { [requestHeaders autorelease]; requestHeaders = [h copy]; }
+- (NSDictionary *) responseHeaders { return responseHeaders; }
+- (BOOL) viaAccelerator { return viaAccelerator; }
 - (void) setDelegate:(id)d { delegate = d; }
 - (id) delegate { return delegate; }
 - (void) setTag:(int)t { tag = t; }
@@ -157,6 +350,8 @@ NSString *GDFormEncode(NSString *s)
 - (void) setCacheTTL:(double)ttl { cacheTTL = ttl; }
 - (BOOL) isFromCache { return fromCache; }
 - (BOOL) isStale { return stale; }
+- (BOOL) wasRevalidated { return revalidated; }
+- (void *) easyHandle { return easy; }
 
 + (void) purgePageCacheOlderThan:(double)seconds
 {
@@ -176,6 +371,7 @@ NSString *GDFormEncode(NSString *s)
 {
     return cacheTTL > 0 && postBody == nil && destinationPath == nil;
 }
+
 - (BOOL) isTransientFailure
 {
     return curlCode == CURLE_OPERATION_TIMEDOUT || curlCode == CURLE_PARTIAL_FILE ||
@@ -184,7 +380,12 @@ NSString *GDFormEncode(NSString *s)
            curlCode == CURLE_SSL_CONNECT_ERROR || curlCode == CURLE_COULDNT_RESOLVE_HOST ||
            (statusCode >= 500 && statusCode < 600);
 }
-- (void) cancel { cancelled = 1; }
+
+- (void) cancel
+{
+    cancelled = 1;
+    engineCancel(self);
+}
 
 - (NSString *) string
 {
@@ -197,6 +398,111 @@ NSString *GDFormEncode(NSString *s)
     return [s autorelease];
 }
 
+/* ---- the page cache ---------------------------------------------------- */
+
+/* The body is the file itself; its validators and content type are a small
+ * plist beside it, so a copy past its time can be revalidated. */
+static NSString *cacheMetaPath(NSString *body)
+{
+    return [body stringByAppendingPathExtension:@"h"];
+}
+
+- (BOOL) useCachedBodyAt:(NSString *)path meta:(NSDictionary *)meta
+{
+    NSData *d = [NSData dataWithContentsOfFile:path];
+    if ([d length] == 0)
+        return NO;
+    [data release];
+    data = [d mutableCopy];
+    [contentType release];
+    contentType = [[meta objectForKey:@"type"] copy];
+    statusCode = 200;
+    fromCache = YES;
+    return YES;
+}
+
+/* Network thread, before the transfer: a fresh copy needs no network at all,
+ * and an older one lends us its validators. */
+- (BOOL) preflightCache
+{
+    NSString *path, *metaPath;
+    NSDictionary *meta;
+    double age;
+
+    if (![self cacheable])
+        return NO;
+    path = pageCachePath(url);
+    age = cacheAge(path);
+    if (age < 0)
+        return NO;
+    metaPath = cacheMetaPath(path);
+    meta = [NSDictionary dictionaryWithContentsOfFile:metaPath];
+    [cachedETag release];
+    cachedETag = [[meta objectForKey:@"etag"] copy];
+    [cachedModified release];
+    cachedModified = [[meta objectForKey:@"modified"] copy];
+    if (age < cacheTTL && [self useCachedBodyAt:path meta:meta]) {
+        finished = YES;
+        return YES;
+    }
+    return NO;
+}
+
+- (void) storeInCache
+{
+    NSString *path = pageCachePath(url);
+    NSMutableDictionary *meta = [NSMutableDictionary dictionary];
+    if (![self cacheable] || [data length] == 0)
+        return;
+    if (![data writeToFile:path atomically:YES])
+        return;
+    if (newETag != nil)
+        [meta setObject:newETag forKey:@"etag"];
+    if (newModified != nil)
+        [meta setObject:newModified forKey:@"modified"];
+    if (contentType != nil)
+        [meta setObject:contentType forKey:@"type"];
+    [meta setObject:[url absoluteString] forKey:@"url"];
+    [meta writeToFile:cacheMetaPath(path) atomically:YES];
+}
+
+/* 304 Not Modified: the copy on disk is current.  Its time starts again, so
+ * the next visit inside the TTL costs nothing at all. */
+- (BOOL) useRevalidatedCache
+{
+    NSString *path = pageCachePath(url);
+    NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:cacheMetaPath(path)];
+    if (![self useCachedBodyAt:path meta:meta])
+        return NO;
+    utimes([path fileSystemRepresentation], NULL);
+    utimes([cacheMetaPath(path) fileSystemRepresentation], NULL);
+    revalidated = YES;
+    [error release];
+    error = nil;
+    return YES;
+}
+
+/* The network failed and there is a copy, however old: show it (offline). */
+- (BOOL) useStaleCache
+{
+    NSString *path;
+    NSDictionary *meta;
+    if (![self cacheable] || cancelled)
+        return NO;
+    path = pageCachePath(url);
+    if (cacheAge(path) < 0)
+        return NO;
+    meta = [NSDictionary dictionaryWithContentsOfFile:cacheMetaPath(path)];
+    if (![self useCachedBodyAt:path meta:meta])
+        return NO;
+    [error release];
+    error = nil;
+    stale = YES;
+    return YES;
+}
+
+/* ---- libcurl callbacks -------------------------------------------------- */
+
 static size_t writeMemory(char *p, size_t sz, size_t n, void *ud)
 {
     GDHTTPRequest *r = ud;
@@ -208,11 +514,61 @@ static size_t writeMemory(char *p, size_t sz, size_t n, void *ud)
 
 static size_t writeFile(char *p, size_t sz, size_t n, void *ud)
 {
-    void **ctx = ud;
-    GDHTTPRequest *r = ctx[0];
+    GDHTTPRequest *r = ud;
+    if (r->cancelled || r->file == NULL)
+        return 0;
+    return fwrite(p, sz, n, (FILE *)r->file) * sz;
+}
+
+static void setField(NSString **slot, const char *value, size_t length)
+{
+    NSString *s = [[NSString alloc] initWithBytes:value length:length
+                                         encoding:NSUTF8StringEncoding];
+    [*slot release];
+    *slot = [[s stringByTrimmingCharactersInSet:
+                   [NSCharacterSet whitespaceAndNewlineCharacterSet]] copy];
+    [s release];
+}
+
+static size_t headerLine(char *p, size_t sz, size_t n, void *ud)
+{
+    GDHTTPRequest *r = ud;
+    size_t len = sz * n, i;
+    const char *colon;
+
     if (r->cancelled)
         return 0;
-    return fwrite(p, sz, n, (FILE *)ctx[1]) * sz;
+    /* A status line starts a new answer: a redirect's headers are not this
+     * one's.  (libcurl follows redirects itself when we are not routed.) */
+    if (len >= 5 && strncasecmp(p, "HTTP/", 5) == 0) {
+        [r->newETag release]; r->newETag = nil;
+        [r->newModified release]; r->newModified = nil;
+        [r->location release]; r->location = nil;
+        [r->responseHeaders removeAllObjects];
+        return len;
+    }
+    colon = memchr(p, ':', len);
+    if (colon == NULL)
+        return len;
+    i = colon - p;
+    if (r->wantsHeaders) {
+        NSString *name = [[NSString alloc] initWithBytes:p length:i encoding:NSUTF8StringEncoding];
+        NSString *value = nil;
+        setField(&value, colon + 1, len - i - 1);
+        if (r->responseHeaders == nil)
+            r->responseHeaders = [[NSMutableDictionary alloc] init];
+        if (name != nil && value != nil)
+            [r->responseHeaders setObject:value forKey:name];
+        [name release];
+        [value release];
+    }
+    if (i == 4 && strncasecmp(p, "ETag", 4) == 0)
+        setField(&r->newETag, colon + 1, len - i - 1);
+    else if (i == 13 && strncasecmp(p, "Last-Modified", 13) == 0)
+        setField(&r->newModified, colon + 1, len - i - 1);
+    else if (i == 8 && strncasecmp(p, "Location", 8) == 0)
+        setField(&r->location, colon + 1, len - i - 1);
+    return len;
 }
 
 - (void) reportProgress:(NSArray *)a
@@ -245,33 +601,65 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     return 0;
 }
 
-- (BOOL) perform
-{
-    char errbuf[CURL_ERROR_SIZE];
-    struct curl_slist *headers = NULL;
-    FILE *fp = NULL;
-    NSString *partial = nil;
-    void *fctx[2];
-    CURL *h;
-    CURLcode rc;
-    char *s = NULL;
+/* ---- one attempt -------------------------------------------------------- */
 
-    errbuf[0] = 0;
+- (BOOL) prepareHandle
+{
+    struct curl_slist *headers = NULL;
+    CURL *h = curl_easy_init();
+
+    if (h == NULL)
+        return NO;
+    easy = h;
+    errorBuffer = calloc(1, CURL_ERROR_SIZE);
+
     [data release];
     data = [[NSMutableData alloc] init];
+    statusCode = 0;
 
-    h = curl_easy_init();
+    /* Through PowerEmu only what cannot go wrong there: a download must arrive
+     * byte for byte (its MD5 is checked), a form post and the search token
+     * need the site's own session, and both are cheap to fetch directly. */
+    viaAccelerator = !bypassAccelerator && destinationPath == nil && postBody == nil &&
+                     !usesSession && [GDAccelerator shouldRoute:url];
+
+    curl_easy_setopt(h, CURLOPT_PRIVATE, self);
     curl_easy_setopt(h, CURLOPT_SHARE, gShare);
-    curl_easy_setopt(h, CURLOPT_COOKIEFILE, "");     /* cookie engine on */
-    curl_easy_setopt(h, CURLOPT_URL, [[url absoluteString] UTF8String]);
-    curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf);
+    if (viaAccelerator) {
+        /* To PowerEmu, asking for the real URL (an absolute-form request
+         * target, as to a forward proxy); PowerEmu makes the TLS connection.
+         * No cookie engine: curl would key the site's cookies to PowerEmu's
+         * address. */
+        NSString *target = [url absoluteString];
+        NSString *host = [url host];
+        NSRange fragment = [target rangeOfString:@"#"];
+        if (fragment.location != NSNotFound)
+            target = [target substringToIndex:fragment.location];
+        if ([url port] != nil)
+            host = [NSString stringWithFormat:@"%@:%@", host, [url port]];
+        curl_easy_setopt(h, CURLOPT_URL, [[GDAccelerator baseURL] UTF8String]);
+        curl_easy_setopt(h, CURLOPT_REQUEST_TARGET, [target UTF8String]);
+        headers = curl_slist_append(headers, [[@"Host: " stringByAppendingString:host] UTF8String]);
+        headers = curl_slist_append(headers, [[@"X-PowerEmu-Engine: "
+            stringByAppendingString:[GDAccelerator engineHeader]] UTF8String]);
+        if ([GDAccelerator token] != nil)
+            headers = curl_slist_append(headers, [[@"X-PowerEmu-Token: "
+                stringByAppendingString:[GDAccelerator token]] UTF8String]);
+        /* PowerEmu hands back a redirect as it is, for us to follow. */
+        curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 0L);
+        curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 1500L);
+    } else {
+        curl_easy_setopt(h, CURLOPT_COOKIEFILE, "");     /* cookie engine on */
+        curl_easy_setopt(h, CURLOPT_URL, [[url absoluteString] UTF8String]);
+        curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT, 30L);
+    }
+    curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errorBuffer);
     curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(h, CURLOPT_MAXREDIRS, 10L);
     curl_easy_setopt(h, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_1_1);
     curl_easy_setopt(h, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(h, CURLOPT_USERAGENT, [[GDHTTPRequest userAgent] UTF8String]);
-    curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT, 30L);
     curl_easy_setopt(h, CURLOPT_LOW_SPEED_LIMIT, 1L);
     curl_easy_setopt(h, CURLOPT_LOW_SPEED_TIME, 90L);
     curl_easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 1L);
@@ -282,8 +670,25 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, progress);
     curl_easy_setopt(h, CURLOPT_XFERINFODATA, self);
     curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, headerLine);
+    curl_easy_setopt(h, CURLOPT_HEADERDATA, self);
     headers = curl_slist_append(headers, "Expect:");
     headers = curl_slist_append(headers, "Accept-Language: en");
+    if (requestHeaders != nil) {
+        NSEnumerator *names = [requestHeaders keyEnumerator];
+        NSString *name;
+        while ((name = [names nextObject]) != nil)
+            headers = curl_slist_append(headers, [[NSString stringWithFormat:@"%@: %@", name,
+                          [requestHeaders objectForKey:name]] UTF8String]);
+    }
+    /* Revalidate rather than download again. */
+    if (cachedETag != nil)
+        headers = curl_slist_append(headers,
+            [[@"If-None-Match: " stringByAppendingString:cachedETag] UTF8String]);
+    if (cachedModified != nil)
+        headers = curl_slist_append(headers,
+            [[@"If-Modified-Since: " stringByAppendingString:cachedModified] UTF8String]);
+    headerList = headers;
     curl_easy_setopt(h, CURLOPT_HTTPHEADER, headers);
 
     if (postBody != nil) {
@@ -294,114 +699,169 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     if (destinationPath != nil) {
         /* name.part until complete, so a half download never looks finished */
         struct stat st;
-        partial = [destinationPath stringByAppendingPathExtension:@"part"];
+        [partialPath release];
+        partialPath = [[destinationPath stringByAppendingPathExtension:@"part"] retain];
         resumedFrom = 0;
-        if (stat([partial fileSystemRepresentation], &st) == 0 && st.st_size > 0)
+        if (stat([partialPath fileSystemRepresentation], &st) == 0 && st.st_size > 0)
             resumedFrom = st.st_size;
-        fp = fopen([partial fileSystemRepresentation], resumedFrom ? "ab" : "wb");
-        if (fp == NULL) {
-            error = [[NSString stringWithFormat:@"Cannot write %@", partial] retain];
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(h);
+        file = fopen([partialPath fileSystemRepresentation], resumedFrom ? "ab" : "wb");
+        if (file == NULL) {
+            [error release];
+            error = [[NSString stringWithFormat:@"Cannot write %@", partialPath] retain];
             return NO;
         }
-        fctx[0] = self;
-        fctx[1] = fp;
         curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, writeFile);
-        curl_easy_setopt(h, CURLOPT_WRITEDATA, fctx);
+        curl_easy_setopt(h, CURLOPT_WRITEDATA, self);
         if (resumedFrom)
             curl_easy_setopt(h, CURLOPT_RESUME_FROM_LARGE, (curl_off_t)resumedFrom);
     } else {
         curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, writeMemory);
         curl_easy_setopt(h, CURLOPT_WRITEDATA, self);
     }
+    return YES;
+}
 
-    rc = curl_easy_perform(h);
-    if (rc == CURLE_RANGE_ERROR && resumedFrom && fp != NULL) {
-        /* The server ignores Range: start this file over. */
-        fclose(fp);
-        fp = fopen([partial fileSystemRepresentation], "wb");
-        resumedFrom = 0;
-        fctx[1] = fp;
-        curl_easy_setopt(h, CURLOPT_RESUME_FROM_LARGE, (curl_off_t)0);
-        rc = curl_easy_perform(h);
+- (void) releaseHandle
+{
+    if (file != NULL) {
+        fclose((FILE *)file);
+        file = NULL;
     }
-    curlCode = rc;
-    curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &statusCode);
-    if (curl_easy_getinfo(h, CURLINFO_EFFECTIVE_URL, &s) == CURLE_OK && s)
-        effectiveURL = [[NSString alloc] initWithUTF8String:s];
-    s = NULL;
-    if (curl_easy_getinfo(h, CURLINFO_CONTENT_TYPE, &s) == CURLE_OK && s)
-        contentType = [[NSString alloc] initWithUTF8String:s];
+    if (easy != NULL) {
+        curl_easy_cleanup((CURL *)easy);
+        easy = NULL;
+    }
+    if (headerList != NULL) {
+        curl_slist_free_all((struct curl_slist *)headerList);
+        headerList = NULL;
+    }
+    if (errorBuffer != NULL) {
+        free(errorBuffer);
+        errorBuffer = NULL;
+    }
+}
 
-    if (cancelled)
+/* Between attempts: should this request run again, and how?  Network thread,
+ * after the handle is gone. */
+- (BOOL) takeRestart
+{
+    int what = restart;
+    if (what == GDRestartNone || cancelled)
+        return NO;
+    restart = GDRestartNone;
+    if (what == GDRestartAgain) {
+        ;                       /* the same request, from the start */
+    } else if (what == GDRestartDirect) {
+        bypassAccelerator = YES;
+        viaAccelerator = NO;
+    } else {
+        NSURL *next = [NSURL URLWithString:location relativeToURL:url];
+        if (next == nil)
+            return NO;
+        [url release];
+        url = [[next absoluteURL] retain];
+        redirects++;
+        /* validators belong to the page we came from */
+        [cachedETag release];
+        cachedETag = nil;
+        [cachedModified release];
+        cachedModified = nil;
+    }
+    [error release];
+    error = nil;
+    statusCode = 0;
+    return YES;
+}
+
+- (void) finishWithCurlCode:(int)code
+{
+    char *s = NULL;
+    CURL *h = (CURL *)easy;
+
+    curlCode = code;
+    if (h != NULL) {
+        curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &statusCode);
+        if (curl_easy_getinfo(h, CURLINFO_EFFECTIVE_URL, &s) == CURLE_OK && s) {
+            [effectiveURL release];
+            effectiveURL = [[NSString alloc] initWithUTF8String:s];
+        }
+        s = NULL;
+        if (curl_easy_getinfo(h, CURLINFO_CONTENT_TYPE, &s) == CURLE_OK && s) {
+            [contentType release];
+            contentType = [[NSString alloc] initWithUTF8String:s];
+        }
+    }
+    if (viaAccelerator && effectiveURL != nil) {
+        /* The transfer went to PowerEmu; the URL the caller asked for is the
+         * one it should see. */
+        [effectiveURL release];
+        effectiveURL = [[url absoluteString] copy];
+    }
+
+    [error release];
+    error = nil;
+    if (cancelled) {
         error = [@"Cancelled" retain];
-    else if (rc != CURLE_OK)
-        error = [[NSString stringWithFormat:@"%s", errbuf[0] ? errbuf : curl_easy_strerror(rc)] retain];
-    else if (statusCode == 416 && resumedFrom > 0)
+    } else if (code != CURLE_OK) {
+        error = [[NSString stringWithFormat:@"%s",
+                     (errorBuffer && errorBuffer[0]) ? errorBuffer
+                                                     : curl_easy_strerror((CURLcode)code)] retain];
+    } else if (statusCode == 304 && [self useRevalidatedCache]) {
+        ;   /* the copy on disk is current */
+    } else if (statusCode == 416 && resumedFrom > 0) {
         ;   /* the .part was already whole; the caller's checksum decides */
-    else if (statusCode < 200 || statusCode >= 300)
+    } else if (statusCode < 200 || statusCode >= 300) {
         error = [[NSString stringWithFormat:@"HTTP %ld", statusCode] retain];
+    }
 
-    if (fp != NULL) {
-        fclose(fp);
+    /* The server ignored Range and sent the whole file: start it over. */
+    if (code == CURLE_RANGE_ERROR && resumedFrom > 0 && partialPath != nil && !cancelled) {
+        if (file != NULL) {
+            fclose((FILE *)file);
+            file = NULL;
+        }
+        unlink([partialPath fileSystemRepresentation]);
+        resumedFrom = 0;
+        restart = GDRestartAgain;
+        return;
+    }
+
+    /* PowerEmu, not the site, failed: run the request again, directly.
+     * Nothing reached the site, so this is safe for any request we route. */
+    if (viaAccelerator && !cancelled && restart == GDRestartNone) {
+        if (code != CURLE_OK && statusCode == 0) {
+            [GDAccelerator markFailed];
+            restart = GDRestartDirect;
+        } else if (statusCode == 502 || statusCode == 504 || statusCode == 401) {
+            restart = GDRestartDirect;
+        } else if (statusCode >= 300 && statusCode < 400 && [location length] > 0 &&
+                   redirects < 10) {
+            restart = GDRestartRedirect;
+        }
+    }
+    if (restart != GDRestartNone)
+        return;
+
+    if (error == nil && statusCode != 304)
+        [self storeInCache];
+    if (error != nil && !cancelled)
+        [self useStaleCache];
+
+    if (file != NULL) {
+        fclose((FILE *)file);
+        file = NULL;
         /* On failure the .part stays, so the next attempt resumes it. */
         if (error == nil) {
             [[NSFileManager defaultManager] removeFileAtPath:destinationPath handler:nil];
-            rename([partial fileSystemRepresentation], [destinationPath fileSystemRepresentation]);
+            rename([partialPath fileSystemRepresentation],
+                   [destinationPath fileSystemRepresentation]);
         } else if (statusCode == 404 || statusCode == 403 || statusCode == 410) {
-            unlink([partial fileSystemRepresentation]);
+            unlink([partialPath fileSystemRepresentation]);
         }
     }
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(h);
-    return error == nil;
 }
 
-/* The network fetch wrapped in the page cache. */
-- (BOOL) performCached
-{
-    NSString *cp;
-    double age;
-    BOOL ok;
-    if (![self cacheable])
-        return [self perform];
-    cp = pageCachePath(url);
-    age = cacheAge(cp);
-    if (age >= 0 && age < cacheTTL) {
-        NSData *d = [NSData dataWithContentsOfFile:cp];
-        if ([d length]) {
-            [data release];
-            data = [d mutableCopy];
-            statusCode = 200;
-            fromCache = YES;
-            return YES;
-        }
-    }
-    ok = [self perform];
-    if (ok && [data length])
-        [data writeToFile:cp atomically:YES];
-    else if (!ok && !cancelled && age >= 0) {
-        NSData *d = [NSData dataWithContentsOfFile:cp];
-        if ([d length]) {
-            [data release];
-            data = [d mutableCopy];
-            [error release];
-            error = nil;
-            statusCode = 200;
-            fromCache = stale = YES;
-            return YES;
-        }
-    }
-    return ok;
-}
-
-- (BOOL) startSynchronous
-{
-    BOOL ok = [self performCached];
-    finished = YES;
-    return ok;
-}
+/* ---- running it --------------------------------------------------------- */
 
 - (void) finishOnMain
 {
@@ -410,52 +870,38 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
         [delegate httpRequestDidFinish:self];
 }
 
-- (void) threadMain
+/* Network thread: hand the answer to the main thread and let go of the retain
+ * -start took. */
+- (void) deliver
 {
-    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-
-    /* A fresh cached page needs no network slot. */
-    if ([self cacheable]) {
-        NSString *cp = pageCachePath(url);
-        double age = cacheAge(cp);
-        NSData *d = (age >= 0 && age < cacheTTL) ? [NSData dataWithContentsOfFile:cp] : nil;
-        if ([d length]) {
-            [data release];
-            data = [d mutableCopy];
-            statusCode = 200;
-            fromCache = YES;
-            [self performSelectorOnMainThread:@selector(finishOnMain) withObject:nil waitUntilDone:NO];
-            [self release];
-            [pool release];
-            return;
-        }
-    }
-
-    pthread_mutex_lock(&gSlotLock);
-    while (gActive >= GD_HTTP_MAX_ACTIVE)
-        pthread_cond_wait(&gSlotCond, &gSlotLock);
-    gActive++;
-    pthread_mutex_unlock(&gSlotLock);
-
-    if (!cancelled)
-        [self performCached];
-    else
-        error = [@"Cancelled" retain];
-
-    pthread_mutex_lock(&gSlotLock);
-    gActive--;
-    pthread_cond_signal(&gSlotCond);
-    pthread_mutex_unlock(&gSlotLock);
-
     [self performSelectorOnMainThread:@selector(finishOnMain) withObject:nil waitUntilDone:NO];
-    [self release];         /* balances the retain in -start */
-    [pool release];
+    [self release];
+}
+
+- (BOOL) startSynchronous
+{
+    if ([self preflightCache]) {
+        finished = YES;
+        return YES;
+    }
+    do {
+        if (![self prepareHandle]) {
+            [self releaseHandle];
+            finished = YES;
+            return NO;
+        }
+        [self finishWithCurlCode:curl_easy_perform((CURL *)easy)];
+        [self releaseHandle];
+    } while ([self takeRestart]);
+    finished = YES;
+    return error == nil;
 }
 
 - (void) start
 {
-    [self retain];
-    [NSThread detachNewThreadSelector:@selector(threadMain) toTarget:self withObject:nil];
+    [self retain];              /* the engine gives this back in -deliver */
+    finished = NO;
+    engineEnqueue(self);
 }
 
 @end

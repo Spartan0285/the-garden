@@ -3,6 +3,7 @@
 #import "GDInstaller.h"
 #import "GDGarden.h"
 #import "GDCatalog.h"
+#import "GDAccelerator.h"
 
 static NSMenu *addSubmenu(NSMenu *bar, NSString *title)
 {
@@ -67,6 +68,7 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     addItem(m, @"Forward", @selector(goForward:), @"]");
     addItem(m, @"Search", @selector(focusSearch:), @"f");
     addItem(m, @"Reload", @selector(reloadPage:), @"r");
+    addItem(m, @"View Page on Macintosh Garden", @selector(viewOnSite:), @"l");
 
     m = addSubmenu(bar, @"View");
     addItem(m, @"Only Show Software That Runs on This Mac", @selector(toggleOnlyRunnable:), @"R");
@@ -82,6 +84,8 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
 {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     NSString *debugPage = [d stringForKey:@"GDDebugPage"];
+    /* Look for PowerEmu's Web Accelerator; nothing waits on the answer. */
+    [GDAccelerator start];
     store = [[GDStoreController alloc] init];
     [store showWindow];
     [NSApp activateIgnoringOtherApps:YES];
@@ -156,18 +160,32 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
             }
         }
     }
+    /* Optional: open the page on the site in a web view, and snapshot that
+     * window instead (the WebKit bridge, GDWebProtocol). */
+    if ([d boolForKey:@"GDDebugViewOnSite"]) {
+        static int webTicks;
+        if (!debugWebOpened && debugQuiet >= 4) {
+            [store viewOnSite:nil];
+            debugWebOpened = YES;
+            webTicks = 0;
+        }
+        if (debugWebOpened)
+            debugQuiet = (++webTicks >= 12) ? 4 : 0;
+    }
     if ((debugQuiet >= 4 && ticks >= [d integerForKey:@"GDDebugMinSeconds"]) || ticks > 240) {
-        NSView *view = [[[store window] contentView] superview];
+        NSWindow *win = (debugWebOpened && [NSApp keyWindow] != nil) ? [NSApp keyWindow] : [store window];
+        NSView *view = [[win contentView] superview];
         NSBitmapImageRep *bm;
         [debugTimer invalidate];
         [debugTimer release];
         debugTimer = nil;
-        if ([d integerForKey:@"GDDebugScroll"]) {
-            NSScrollView *sv = (NSScrollView *)[[store window] contentView];
+        if ([d integerForKey:@"GDDebugScroll"] &&
+            [[win contentView] isKindOfClass:[NSScrollView class]]) {
+            NSScrollView *sv = (NSScrollView *)[win contentView];
             [[sv documentView] scrollPoint:NSMakePoint(0, [d integerForKey:@"GDDebugScroll"])];
-            [[store window] display];
+            [win display];
         }
-        [[store window] displayIfNeeded];
+        [win displayIfNeeded];
         bm = [view bitmapImageRepForCachingDisplayInRect:[view bounds]];
         [view cacheDisplayInRect:[view bounds] toBitmapImageRep:bm];
         [[bm representationUsingType:NSPNGFileType properties:nil]
@@ -175,8 +193,8 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         /* and the Dock icon as it is drawn now (badge, progress) */
         [[[NSApp applicationIconImage] TIFFRepresentation]
             writeToFile:[[d stringForKey:@"GDDebugSnapshotPath"] stringByAppendingString:@".icon.tiff"] atomically:YES];
-        {
-            NSView *doc = [(NSScrollView *)[[store window] contentView] documentView];
+        if ([[win contentView] isKindOfClass:[NSScrollView class]]) {
+            NSView *doc = [(NSScrollView *)[win contentView] documentView];
             NSLog(@"The Garden: snapshot written after %ds; doc %@ frame %@ visible %@ subviews %d",
                   ticks, [doc class], NSStringFromRect([doc frame]),
                   NSStringFromRect([doc visibleRect]), (int)[[doc subviews] count]);

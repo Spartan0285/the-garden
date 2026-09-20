@@ -45,5 +45,6 @@
 - (IBAction) focusSearch:(id)sender;
 - (IBAction) reloadPage:(id)sender;
 - (IBAction) toggleOnlyRunnable:(id)sender;
+- (IBAction) viewOnSite:(id)sender;
 - (BOOL) onlyRunnable;
 @end

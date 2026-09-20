@@ -8,19 +8,27 @@
 #import <Foundation/Foundation.h>
 #import "GDHTTP.h"
 #import "GDGarden.h"
+#import "GDAccelerator.h"
 
 static NSData *fetch(NSURL *u, NSData *post)
 {
     GDHTTPRequest *r = [GDHTTPRequest requestWithURL:u];
     double t0 = CFAbsoluteTimeGetCurrent();
+    /* GDTOOL_TTL seconds exercises the page cache: a copy younger than that is
+     * used as it is, an older one is revalidated. */
+    const char *ttl = getenv("GDTOOL_TTL");
     if (post)
         [r setPostBody:post];
+    if (ttl != NULL)
+        [r setCacheTTL:atof(ttl)];
     if (![r startSynchronous]) {
         fprintf(stderr, "%s: %s\n", [[u absoluteString] UTF8String], [[r error] UTF8String]);
         return nil;
     }
-    fprintf(stderr, "%s -> %ld, %lu bytes, %.2fs\n", [[u absoluteString] UTF8String],
-            [r statusCode], (unsigned long)[[r data] length], CFAbsoluteTimeGetCurrent() - t0);
+    fprintf(stderr, "%s -> %ld, %lu bytes, %.2fs%s%s%s%s\n", [[u absoluteString] UTF8String],
+            [r statusCode], (unsigned long)[[r data] length], CFAbsoluteTimeGetCurrent() - t0,
+            [r isFromCache] ? " [cache" : "", [r wasRevalidated] ? " revalidated" : "",
+            [r isStale] ? " stale" : "", [r isFromCache] ? "]" : "");
     return [r data];
 }
 
@@ -41,6 +49,10 @@ int main(int argc, const char **argv)
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     NSString *cmd = argc > 1 ? [NSString stringWithUTF8String:argv[1]] : @"list";
     NSData *d;
+
+    /* Inside a PowerEmu virtual Mac, use its Web Accelerator; on a real Mac
+     * this costs one 300ms probe that fails, and everything goes direct. */
+    [GDAccelerator startSynchronously];
 
     if ([cmd isEqualToString:@"list"]) {
         NSString *sec = argc > 2 ? [NSString stringWithUTF8String:argv[2]] : @"apps";
