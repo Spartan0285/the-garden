@@ -5,6 +5,7 @@
 #include <openssl/evp.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <stdarg.h>
 
 NSString *GDSelfUpdateChangedNotification = @"GDSelfUpdateChanged";
 
@@ -130,6 +131,35 @@ static NSString *sha256OfFile(NSString *path)
     return hex;
 }
 
+/* A line in the update log, beside the downloads: when an update is refused
+ * there is otherwise nothing to look at, and these machines are often headless
+ * when it happens. */
+static void updateLog(NSString *format, ...)
+{
+    va_list args;
+    NSString *line, *path;
+    NSData *existing;
+    NSMutableData *out;
+
+    va_start(args, format);
+    line = [[[NSString alloc] initWithFormat:format arguments:args] autorelease];
+    va_end(args);
+    NSLog(@"The Garden: %@", line);
+    path = [[[NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)
+                 objectAtIndex:0] stringByAppendingPathComponent:@"The Garden"]
+               stringByAppendingPathComponent:@"update-log.txt"];
+    line = [NSString stringWithFormat:@"%@  %@\n", [[NSDate date] description], line];
+    existing = [NSData dataWithContentsOfFile:path];
+    out = [NSMutableData data];
+    /* Keep the tail only: this must never grow without bound. */
+    if ([existing length] > 16 * 1024)
+        existing = [existing subdataWithRange:NSMakeRange([existing length] - 8 * 1024, 8 * 1024)];
+    if (existing != nil)
+        [out appendData:existing];
+    [out appendData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [out writeToFile:path atomically:YES];
+}
+
 /* ---- the updater -------------------------------------------------------- */
 
 @implementation GDSelfUpdate
@@ -244,10 +274,9 @@ static NSString *sha256OfFile(NSString *path)
 - (void) failed:(NSString *)why
 {
     checking = downloading = NO;
+    updateLog(@"update: %@", why);
     if (userAsked)
         NSRunAlertPanel(@"The Garden could not check for updates", @"%@", @"OK", nil, nil, why);
-    else
-        NSLog(@"The Garden: update check: %@", why);
 }
 
 /* The newest entry that is newer than this build, runs on this Mac, and is
@@ -280,9 +309,12 @@ static NSString *sha256OfFile(NSString *path)
             return nil;
     }
     if (!signatureIsGood(signedStatement(entry), [entry objectForKey:@"signature"])) {
-        NSLog(@"The Garden: an update was offered but is not signed by the release key; ignoring it");
+        updateLog(@"refused build %d (%@): not signed by the release key",
+                  build, [entry objectForKey:@"version"]);
         return nil;
     }
+    updateLog(@"build %d (%@) is offered and properly signed",
+              build, [entry objectForKey:@"version"]);
     return entry;
 }
 
@@ -359,8 +391,7 @@ static NSString *sha256OfFile(NSString *path)
         return;
     announced = YES;
     if (installWithoutAsking) {
-        NSLog(@"The Garden: update %@ verified; installing",
-              [available objectForKey:@"version"]);
+        updateLog(@"update %@ verified; installing", [available objectForKey:@"version"]);
         [self installDownloaded];
         return;
     }
