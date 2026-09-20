@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.2.2</string>
+	<string>0.2.3</string>
 	<key>build</key>
-	<string>4</string>
+	<string>5</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2.2/TheGarden-0.2.2.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2.3/TheGarden-0.2.3.zip</string>
 	<key>sha256</key>
-	<string>f9a2076af1fe88fe25143d3e1ca07361ab2c8dc8ee6554af9af9c0fbe11c874c</string>
+	<string>6cd71113389819d759bdecd04782f3daa1a2793a6cea2dbe00afd6eb65ed2a5a</string>
 	<key>size</key>
-	<string>7062623</string>
+	<string>6785080</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Captain Polliwog's network fixes: the Keychain is never read on the main thread (a fresh install could freeze on the first PowerEmu it found over Bonjour), hop-by-hop headers are no longer handed to WebKit, and a POST with no body sends Content-Length: 0. New icon.</string>
+	<string>The application icon was blank on Leopard: the 256 and 512 pixel sizes are now JPEG 2000, which is what 10.5 reads.</string>
 	<key>signature</key>
-	<string>bfiXc+agdXittUvn4KkYktmC+DTuDwWRfzu5E8gJJgPQppivLamC6Q18ibi/LjaNSkDxc0nZFLV0905Qxqq1CA==</string>
+	<string>XIgCKG8/nJxTZyIwyOIFkV7O+vHNrBAocif2EzFLL7OEogwcAWfLMce5fei9zx7jj0xyoZUFp5SkPGhd6pW3Ag==</string>
 </dict>
 </plist>
