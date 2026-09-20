@@ -11,4 +11,5 @@
     BOOL debugWebOpened;
 }
 - (void) buildMainMenu;
+- (IBAction) checkForUpdates:(id)sender;
 @end

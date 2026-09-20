@@ -23,7 +23,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>@VERSION@</string>
 	<key>CFBundleVersion</key>
-	<string>@VERSION@</string>
+	<string>@BUILD@</string>
 	<key>CFBundleGetInfoString</key>
 	<string>The Garden @VERSION@, a store for Macintosh Garden software</string>
 	<key>LSMinimumSystemVersion</key>

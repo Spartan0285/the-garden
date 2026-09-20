@@ -4,7 +4,10 @@
 
 APP_NAME = The Garden
 EXEC     = TheGarden
-VERSION  = 0.1
+VERSION  = 0.2
+# CFBundleVersion: a whole number, up by one each release.  The updater
+# compares these, never the version people read.
+BUILD_NUMBER = 2
 
 SDK       ?= /Developer/SDKs/MacOSX10.4u.sdk
 # Static OpenSSL 3 + libcurl 8 per architecture, as built for Captain Polliwog.
@@ -89,7 +92,7 @@ app: $(BUILD)/$(EXEC) Resources/Info.plist Resources/cacert.pem
 	@rm -rf "$(APP)"
 	@mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	@cp $(BUILD)/$(EXEC) "$(APP)/Contents/MacOS/$(EXEC)"
-	@sed -e 's/@VERSION@/$(VERSION)/g' Resources/Info.plist > "$(APP)/Contents/Info.plist"
+	@sed -e 's/@VERSION@/$(VERSION)/g' -e 's/@BUILD@/$(BUILD_NUMBER)/g' Resources/Info.plist > "$(APP)/Contents/Info.plist"
 	@printf 'APPLGdnX' > "$(APP)/Contents/PkgInfo"
 	@cp Resources/cacert.pem Resources/*.plist "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@rm -f "$(APP)/Contents/Resources/Info.plist"

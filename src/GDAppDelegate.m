@@ -4,6 +4,8 @@
 #import "GDGarden.h"
 #import "GDCatalog.h"
 #import "GDAccelerator.h"
+#import "GDSelfUpdate.h"
+#import "GDStyle.h"
 
 static NSMenu *addSubmenu(NSMenu *bar, NSString *title)
 {
@@ -33,6 +35,8 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     [NSApp setMainMenu:bar];
     m = addSubmenu(bar, @"The Garden");
     addItem(m, @"About The Garden", @selector(orderFrontStandardAboutPanel:), nil);
+    [m addItem:[NSMenuItem separatorItem]];
+    addItem(m, GDU("Check for Updates\xE2\x80\xA6"), @selector(checkForUpdates:), nil);
     [m addItem:[NSMenuItem separatorItem]];
     addItem(m, @"Hide The Garden", @selector(hide:), @"h");
     it = addItem(m, @"Hide Others", @selector(hideOtherApplications:), @"h");
@@ -86,6 +90,13 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     NSString *debugPage = [d stringForKey:@"GDDebugPage"];
     /* Look for PowerEmu's Web Accelerator; nothing waits on the answer. */
     [GDAccelerator start];
+    /* And for a newer Garden, once a day, quietly. */
+    if ([d boolForKey:@"GDDebugUpdate"])
+        [[GDSelfUpdate sharedUpdater] performSelector:@selector(checkAndInstallNow)
+                                           withObject:nil afterDelay:3.0];
+    else
+        [[GDSelfUpdate sharedUpdater] performSelector:@selector(checkInBackground)
+                                           withObject:nil afterDelay:5.0];
     store = [[GDStoreController alloc] init];
     [store showWindow];
     [NSApp activateIgnoringOtherApps:YES];
@@ -108,6 +119,11 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     if ([d stringForKey:@"GDDebugSnapshotPath"])
         debugTimer = [[NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(debugTick:)
                                                      userInfo:nil repeats:YES] retain];
+}
+
+- (IBAction) checkForUpdates:(id)sender
+{
+    [[GDSelfUpdate sharedUpdater] checkForUpdates:sender];
 }
 
 - (void) debugTick:(NSTimer *)t
