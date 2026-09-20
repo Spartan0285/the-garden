@@ -1,4 +1,5 @@
 #import "GDInstaller.h"
+#import "GDSheepShaver.h"
 #import "GDHTTP.h"
 #import "GDCatalog.h"
 #import "GDUtil.h"
@@ -900,7 +901,15 @@ static BOOL isDiskImage(NSString *p)
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *os9 = @"/Applications (Mac OS 9)";
     NSString *apps = @"/Applications";
-    if ((job->verdict == GDVerdictClassic || job->verdict == GDVerdictNeedsClassic) &&
+    /* Mac OS 9 software on a Mac with no Classic: where SheepShaver can see
+     * it, which is usually "Applications (Mac OS 9)" anyway. */
+    if (job->verdict == GDVerdictNeedsEmulator) {
+        NSString *shared = [GDSheepShaver installFolder];
+        if (shared != nil)
+            return shared;
+    }
+    if ((job->verdict == GDVerdictClassic || job->verdict == GDVerdictNeedsClassic ||
+         job->verdict == GDVerdictNeedsEmulator) &&
         [fm isWritableFileAtPath:os9])
         return os9;
     if ([fm isWritableFileAtPath:apps])

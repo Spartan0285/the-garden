@@ -16,6 +16,7 @@
 - (void) itemView:(id)v showJob:(GDInstallJob *)job;
 - (void) itemView:(id)v openItem:(GDItem *)item;
 - (void) itemView:(id)v openListing:(NSDictionary *)page;
+- (void) itemView:(id)v tryEmulator:(GDItemDetail *)d;
 @end
 
 @interface GDItemView : NSView

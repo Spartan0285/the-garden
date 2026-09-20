@@ -14,6 +14,7 @@
 typedef enum {                /* ordered worst .. best */
     GDVerdictUnknown = 0,
     GDVerdictIncompatible,
+    GDVerdictNeedsEmulator,   /* Mac OS 9 software on a Mac with no Classic at all */
     GDVerdictNeedsNewerOS,
     GDVerdictNeedsClassic,    /* PowerPC Tiger without a Mac OS 9 System Folder */
     GDVerdictClassic,
@@ -28,6 +29,9 @@ typedef enum {                /* ordered worst .. best */
 + (NSString *) hostDescription;
 
 + (GDVerdict) verdictForFile:(GDFile *)f architecture:(NSString *)arch;
+/* For GDVerdictNeedsEmulator: which emulator, and where it is in the Garden. */
++ (NSString *) emulatorNameForItem:(GDItemDetail *)d;
++ (NSString *) emulatorPathForItem:(GDItemDetail *)d;
 + (GDVerdict) verdictForItem:(GDItemDetail *)d bestFile:(GDFile **)best;
 
 + (NSString *) shortLabel:(GDVerdict)v;    /* badge text */

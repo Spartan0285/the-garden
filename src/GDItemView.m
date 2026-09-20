@@ -19,6 +19,7 @@
 - (float) layoutExtras:(float)width;
 - (void) loadExtras;
 - (void) drawExtras:(float)w;
+- (void) link:(NSRect)r kind:(NSString *)kind object:(id)o;
 @end
 
 static NSDictionary *textAttrs(NSFont *f, NSColor *c)
@@ -293,6 +294,19 @@ static float textHeight(NSString *s, NSFont *f, float w)
         GDDrawText([GDCompat explanation:v], NSMakeRect(LEFT_X, y, LEFT_W, 44),
                    [NSFont systemFontOfSize:10], GDSubtleTextColor(), NO);
         y += 44;
+        /* ...and the Garden has that emulator: one click away. */
+        if (v == GDVerdictNeedsEmulator) {
+            NSString *name = [GDCompat emulatorNameForItem:detail];
+            NSString *where = [GDCompat emulatorPathForItem:detail];
+            NSString *t = [NSString stringWithFormat:GDU("Try with %@ \xE2\x80\xBA"), name];
+            NSDictionary *la = textAttrs([NSFont systemFontOfSize:11], GDAccentColor());
+            NSSize ts = [t sizeWithAttributes:la];
+            NSRect lr = NSMakeRect(LEFT_X, y - 8, ts.width, ts.height);
+            [t drawInRect:lr withAttributes:la];
+            (void)where;
+            [self link:lr kind:@"emulator" object:nil];
+            y += 16;
+        }
     }
     [[NSColor colorWithCalibratedWhite:0.84 alpha:1] set];
     NSRectFill(NSMakeRect(LEFT_X, y, LEFT_W, 1));
@@ -602,6 +616,9 @@ static float textHeight(NSString *s, NSFont *f, float w)
             [delegate itemView:self openItem:[l objectAtIndex:2]];
         } else if ([kind isEqualToString:@"listing"] && [delegate respondsToSelector:@selector(itemView:openListing:)]) {
             [delegate itemView:self openListing:[l objectAtIndex:2]];
+        } else if ([kind isEqualToString:@"emulator"] &&
+                   [delegate respondsToSelector:@selector(itemView:tryEmulator:)]) {
+            [delegate itemView:self tryEmulator:detail];
         }
         return;
     }

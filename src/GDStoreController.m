@@ -4,6 +4,7 @@
 #import "GDLibraryView.h"
 #import "GDGarden.h"
 #import "GDWebWindow.h"
+#import "GDSheepShaver.h"
 #import "GDHTTP.h"
 #import "GDCatalog.h"
 #import "GDInstaller.h"
@@ -575,14 +576,98 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
     [self go:p];
 }
 
+/* "Try with SheepShaver": say plainly what SheepShaver is and what the Garden
+ * is about to do, before it downloads anything or touches another program's
+ * settings. */
+- (void) itemView:(id)v tryEmulator:(GDItemDetail *)d
+{
+    NSString *name = [GDCompat emulatorNameForItem:d];
+    NSString *where = [GDCompat emulatorPathForItem:d];
+    NSString *title = [d title] ?: @"This title";
+    NSString *folder;
+    GDFile *best = nil;
+    int answer;
+
+    [GDCompat verdictForItem:d bestFile:&best];
+
+    /* Basilisk II, or SheepShaver not installed: explain, and offer to get it. */
+    if (where == nil || ![GDSheepShaver isInstalled]) {
+        NSString *info = [NSString stringWithFormat:
+            @"%@ was made for Mac OS 9, and this Mac has no Classic environment to run it in.\n\n"
+             "%@ is an emulator: it runs an old Macintosh in a window, and Mac OS 9 software "
+             "runs inside that. It needs a Mac OS ROM and a Mac OS 9 system of its own, which "
+             "its page in the Garden has, with a guide.", title, name];
+        answer = NSRunAlertPanel([NSString stringWithFormat:@"%@ runs Mac OS 9 software", name],
+                                 info, [NSString stringWithFormat:@"Get %@", name], @"Cancel", nil);
+        if (answer == NSAlertDefaultReturn) {
+            if (where != nil)
+                [self go:[NSDictionary dictionaryWithObjectsAndKeys:@"item", @"kind", where, @"path",
+                             name, @"title", nil]];
+            else
+                [self go:[NSDictionary dictionaryWithObjectsAndKeys:@"list", @"kind", @"apps", @"section",
+                             @"emulators", @"selector", @"Emulators", @"title", nil]];
+        }
+        return;
+    }
+
+    /* Installed, but sharing no folder with Mac OS 9 yet. */
+    folder = [GDSheepShaver installFolder];
+    if (folder == nil) {
+        NSString *info = [NSString stringWithFormat:
+            @"SheepShaver shows one folder of this Mac to Mac OS 9, as a disk. It is not showing "
+             "any at the moment.\n\nThe Garden can set it to \"Applications (Mac OS 9)\" and install "
+             "%@ there, where Mac OS 9 will see it. SheepShaver reads its settings when it starts, "
+             "so it has to be started again%@. A copy of the settings as they are now is kept.",
+            title, [GDSheepShaver isRunning] ? @" (it is running now)" : @""];
+        answer = NSRunAlertPanel(@"Let SheepShaver see the software the Garden installs?",
+                                 info, @"Share and Download", @"Cancel", nil);
+        if (answer != NSAlertDefaultReturn)
+            return;
+        if (![GDSheepShaver shareFolder:@"/Applications (Mac OS 9)"]) {
+            NSRunAlertPanel(@"SheepShaver's settings could not be changed",
+                            @"The Garden could not write ~/.sheepshaver_prefs.", @"OK", nil, nil);
+            return;
+        }
+        folder = [GDSheepShaver installFolder];
+    } else {
+        NSString *info = [NSString stringWithFormat:
+            @"%@ was made for Mac OS 9, and will not open on this Mac by itself.\n\n"
+             "SheepShaver shows \"%@\" to Mac OS 9 as a disk. The Garden will download %@ and "
+             "install it there, ready to open inside SheepShaver.",
+            title, [folder lastPathComponent], title];
+        answer = NSRunAlertPanel(@"Install for SheepShaver?", info, @"Download", @"Cancel", nil);
+        if (answer != NSAlertDefaultReturn)
+            return;
+    }
+    if (best != nil)
+        [[GDInstaller sharedInstaller] installFile:best ofItem:d];
+}
+
 - (void) itemView:(id)v openInstalled:(NSDictionary *)entry
 {
     NSString *launch = [entry objectForKey:@"launch"];
     NSArray *inst = [entry objectForKey:@"installed"];
+    NSString *where = [inst count] ? [inst objectAtIndex:0] : launch;
+
     if (launch && [[NSWorkspace sharedWorkspace] openFile:launch])
         return;
-    if ([inst count])
-        [[NSWorkspace sharedWorkspace] selectFile:[inst objectAtIndex:0] inFileViewerRootedAtPath:@""];
+    /* Mac OS 9 software cannot be opened by this Mac: it lives in the folder
+     * SheepShaver shows to Mac OS 9, so start SheepShaver and let the reader
+     * open it in there. */
+    if ([GDSheepShaver isInstalled] && [GDSheepShaver sharesPath:where]) {
+        NSString *info = [NSString stringWithFormat:
+            @"This Mac cannot open Mac OS 9 software itself. It is installed in \"%@\", "
+             "which SheepShaver shows to Mac OS 9 as a disk: open it there.",
+            [[where stringByDeletingLastPathComponent] lastPathComponent]];
+        if (NSRunAlertPanel(@"Open it in SheepShaver?", info,
+                            [GDSheepShaver isRunning] ? @"Bring SheepShaver Forward" : @"Start SheepShaver",
+                            @"Show in Finder", nil) == NSAlertDefaultReturn) {
+            [GDSheepShaver launch];
+            return;
+        }
+    }
+    if (where != nil)
+        [[NSWorkspace sharedWorkspace] selectFile:where inFileViewerRootedAtPath:@""];
 }
 
 - (void) itemView:(id)v showScreenshot:(NSString *)url

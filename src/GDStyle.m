@@ -90,6 +90,7 @@ NSColor *GDBadgeColor(GDVerdict v)
     case GDVerdictRosetta: return [NSColor colorWithCalibratedRed:0.20 green:0.42 blue:0.72 alpha:1];
     case GDVerdictClassic: return [NSColor colorWithCalibratedRed:0.45 green:0.32 blue:0.65 alpha:1];
     case GDVerdictNeedsClassic:
+    case GDVerdictNeedsEmulator:
     case GDVerdictNeedsNewerOS: return [NSColor colorWithCalibratedRed:0.80 green:0.50 blue:0.08 alpha:1];
     case GDVerdictIncompatible: return [NSColor colorWithCalibratedRed:0.70 green:0.20 blue:0.18 alpha:1];
     default: return [NSColor colorWithCalibratedWhite:0.55 alpha:1];

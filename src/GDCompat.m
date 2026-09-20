@@ -4,8 +4,20 @@
 
 @implementation GDCompat
 
+/* There is no Intel Mac running Tiger or Leopard here to test on, so the
+ * compatibility rules can be tried on any Mac: GDDebugHostArch (ppc|intel)
+ * and GDDebugHostOS (4|5) stand in for what this Mac is. */
+static NSString *hostOverride(NSString *key)
+{
+    return [[NSUserDefaults standardUserDefaults] stringForKey:key];
+}
+
 + (BOOL) hostIsPPC
 {
+    NSString *forced = hostOverride(@"GDDebugHostArch");
+    if ([forced length])
+        return [[forced lowercaseString] hasPrefix:@"ppc"] ||
+               [[forced lowercaseString] hasPrefix:@"power"];
 #if defined(__ppc__) || defined(__ppc64__)
     /* A PowerPC slice can still be running under Rosetta on an Intel Mac. */
     int native = 0;
@@ -21,6 +33,9 @@
 + (int) hostOSMinor
 {
     static int minor = -1;
+    NSString *forced = hostOverride(@"GDDebugHostOS");
+    if ([forced length])
+        return [forced intValue];
     if (minor < 0) {
         NSDictionary *sv = [NSDictionary dictionaryWithContentsOfFile:
                                @"/System/Library/CoreServices/SystemVersion.plist"];
@@ -148,9 +163,41 @@ static int minOSXVersion(NSString *s)
             return GDVerdictClassic;
         if ([self hostHasClassicSupport])
             return GDVerdictNeedsClassic;
-        return GDVerdictIncompatible;
+        /* An Intel Mac, or Leopard, which dropped Classic: the software is
+         * not for a different computer, it needs an emulator, and the Garden
+         * has one. */
+        return GDVerdictNeedsEmulator;
     }
     return GDVerdictUnknown;
+}
+
+/* SheepShaver is a Mac OS 8.1-9.0.4 Mac, so it runs both PowerPC and (through
+ * Mac OS's own emulator) 68k software of that era.  Anything that stops at
+ * System 7 wants Basilisk II, a 68k Mac. */
++ (BOOL) itemIsPreMacOS8:(GDItemDetail *)d
+{
+    unsigned i;
+    BOOL sawOld = NO;
+    for (i = 0; i < [[d files] count]; i++) {
+        NSString *sys = [[[[d files] objectAtIndex:i] systems] ?: @"" lowercaseString];
+        if (has(sys, @"mac os 8") || has(sys, @"mac os 9"))
+            return NO;
+        if (has(sys, @"system ") || has(sys, @"mac os 7"))
+            sawOld = YES;
+    }
+    return sawOld;
+}
+
++ (NSString *) emulatorNameForItem:(GDItemDetail *)d
+{
+    return [self itemIsPreMacOS8:d] ? @"Basilisk II" : @"SheepShaver";
+}
+
++ (NSString *) emulatorPathForItem:(GDItemDetail *)d
+{
+    /* SheepShaver has one page; Basilisk II has several builds, so send the
+     * reader to the Garden's Emulators shelf to choose. */
+    return [self itemIsPreMacOS8:d] ? nil : @"/apps/sheepshaver";
 }
 
 /* How pleasant a file is to install, all else equal: disk images and zips
@@ -204,6 +251,7 @@ static int installScore(GDFile *f)
     case GDVerdictRosetta:      return @"Runs via Rosetta";
     case GDVerdictClassic:      return @"Runs in Classic";
     case GDVerdictNeedsClassic: return @"Needs Mac OS 9";
+    case GDVerdictNeedsEmulator: return @"Needs an Emulator";
     case GDVerdictNeedsNewerOS: return @"Needs newer Mac OS X";
     case GDVerdictIncompatible: return @"Not for this Mac";
     default:                    return @"Compatibility unknown";
@@ -221,6 +269,9 @@ static int installScore(GDFile *f)
         return @"A Mac OS 9 program; it opens in the Classic environment.";
     case GDVerdictNeedsClassic:
         return @"A Mac OS 9 program. Install a Mac OS 9 System Folder to run it in Classic.";
+    case GDVerdictNeedsEmulator:
+        return @"A Mac OS 9 program, and this Mac has no Classic environment. "
+                "An emulator runs it.";
     case GDVerdictNeedsNewerOS:
         return @"Needs a later version of Mac OS X than this Mac has.";
     case GDVerdictIncompatible:
