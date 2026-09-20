@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.2.1</string>
+	<string>0.2.2</string>
 	<key>build</key>
-	<string>3</string>
+	<string>4</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2.1/TheGarden-0.2.1.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2.2/TheGarden-0.2.2.zip</string>
 	<key>sha256</key>
-	<string>0b30bd08746eea10b1e16d0ae5ff7c4348b321a521e23886612abe31ee3f8aec</string>
+	<string>f9a2076af1fe88fe25143d3e1ca07361ab2c8dc8ee6554af9af9c0fbe11c874c</string>
 	<key>size</key>
-	<string>7126020</string>
+	<string>7062623</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>An update log, so a refused update says why.</string>
+	<string>Captain Polliwog's network fixes: the Keychain is never read on the main thread (a fresh install could freeze on the first PowerEmu it found over Bonjour), hop-by-hop headers are no longer handed to WebKit, and a POST with no body sends Content-Length: 0. New icon.</string>
 	<key>signature</key>
-	<string>GOaRI0laHiXKcjlF+UGqsO72ZArqveovgdvUKMOsvTZsW8+UbhdQ/+dAtBqUhpJ2yp8g2eNm6QScy45vdz3YCw==</string>
+	<string>bfiXc+agdXittUvn4KkYktmC+DTuDwWRfzu5E8gJJgPQppivLamC6Q18ibi/LjaNSkDxc0nZFLV0905Qxqq1CA==</string>
 </dict>
 </plist>
