@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.2</string>
+	<string>0.2.1</string>
 	<key>build</key>
-	<string>2</string>
+	<string>3</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2/TheGarden-0.2.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2.1/TheGarden-0.2.1.zip</string>
 	<key>sha256</key>
-	<string>256560db33aa25771698ad3609c3293a1adb186be50b69446428ef1e5f181b84</string>
+	<string>0b30bd08746eea10b1e16d0ae5ff7c4348b321a521e23886612abe31ee3f8aec</string>
 	<key>size</key>
-	<string>7122962</string>
+	<string>7126020</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>One network engine, PowerEmu's Web Accelerator, a web view for the site, SheepShaver for Mac OS 9 software, and an app icon.</string>
+	<string>An update log, so a refused update says why.</string>
 	<key>signature</key>
-	<string>er7PbK5TjGWR7Ej61rLa1IwzKa9jJxTeVrLuDPhk6SRYzt/DakZNb3h2oU7QzfSzWoglKfYdv9iVxTbiebzmDQ==</string>
+	<string>GOaRI0laHiXKcjlF+UGqsO72ZArqveovgdvUKMOsvTZsW8+UbhdQ/+dAtBqUhpJ2yp8g2eNm6QScy45vdz3YCw==</string>
 </dict>
 </plist>
