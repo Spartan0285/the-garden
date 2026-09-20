@@ -6,7 +6,13 @@
 // (ic04, ic05, ic07 ...), which 10.4 and 10.5 ignore: an app built with one
 // shows the blank application icon.  This writes the 32-bit RGB types those
 // systems read - is32/il32/ih32/it32 with their 8-bit masks, run-length
-// encoded the way icns wants - and adds PNG at 256 and 512 for later systems.
+// encoded the way icns wants - and adds 256 and 512 for later systems.
+//
+// Those two are JPEG 2000, not PNG.  Leopard prefers ic08 over the 128-pixel
+// it32, but PNG in an icns only arrived in 10.6: given a PNG there, Leopard
+// picks it, fails to decode it, and draws nothing at all.  Measured on a
+// PowerBook G4 running 10.5.9 - the icon was blank until these became JPEG
+// 2000, which is what that system was written for.  10.6 and later read both.
 //
 // Runs on the modern Mac the sources are edited on; the result is committed.
 
@@ -116,9 +122,10 @@ func maskChunk(_ type: String, _ size: Int) -> [UInt8] {
     return chunk(type, mask)
 }
 
-func pngChunk(_ type: String, _ size: Int) -> [UInt8] {
-    // Drawn again rather than reusing rgba(): a PNG wants the premultiplied
-    // pixels CoreGraphics produces, not the separated ones icns wants.
+func imageChunk(_ type: String, _ size: Int) -> [UInt8] {
+    // Drawn again rather than reusing rgba(): the encoder wants the
+    // premultiplied pixels CoreGraphics produces, not the separated ones
+    // icns wants for its own types.
     guard let context = CGContext(data: nil, width: size, height: size,
                                   bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(),
@@ -128,8 +135,8 @@ func pngChunk(_ type: String, _ size: Int) -> [UInt8] {
     context.draw(artwork, in: CGRect(x: 0, y: 0, width: size, height: size))
     guard let image = context.makeImage() else { fail("cannot make a \(size)x\(size) image") }
     let out = NSMutableData()
-    guard let destination = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil)
-    else { fail("cannot encode PNG") }
+    guard let destination = CGImageDestinationCreateWithData(out, "public.jpeg-2000" as CFString, 1, nil)
+    else { fail("cannot encode JPEG 2000") }
     CGImageDestinationAddImage(destination, image, nil)
     CGImageDestinationFinalize(destination)
     return chunk(type, [UInt8](out as Data))
@@ -141,9 +148,9 @@ body += colourChunk("is32", 16);  body += maskChunk("s8mk", 16)
 body += colourChunk("il32", 32);  body += maskChunk("l8mk", 32)
 body += colourChunk("ih32", 48);  body += maskChunk("h8mk", 48)
 body += colourChunk("it32", 128); body += maskChunk("t8mk", 128)
-// What 10.6 and later prefer.
-body += pngChunk("ic08", 256)
-body += pngChunk("ic09", 512)
+// What 10.5 and later prefer, as JPEG 2000 (see the note at the top).
+body += imageChunk("ic08", 256)
+body += imageChunk("ic09", 512)
 
 var file = Array("icns".utf8)
 let total = UInt32(body.count + 8)

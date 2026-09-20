@@ -4,10 +4,10 @@
 
 APP_NAME = The Garden
 EXEC     = TheGarden
-VERSION  = 0.2.2
+VERSION  = 0.2.3
 # CFBundleVersion: a whole number, up by one each release.  The updater
 # compares these, never the version people read.
-BUILD_NUMBER = 4
+BUILD_NUMBER = 5
 
 SDK       ?= /Developer/SDKs/MacOSX10.4u.sdk
 # Static OpenSSL 3 + libcurl 8 per architecture, as built for Captain Polliwog.
