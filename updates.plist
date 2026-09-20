@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>version</key>
+	<string>0.2</string>
+	<key>build</key>
+	<string>2</string>
+	<key>url</key>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.2/TheGarden-0.2.zip</string>
+	<key>sha256</key>
+	<string>256560db33aa25771698ad3609c3293a1adb186be50b69446428ef1e5f181b84</string>
+	<key>size</key>
+	<string>7122962</string>
+	<key>minimumSystemVersion</key>
+	<string>10.4</string>
+	<key>notes</key>
+	<string>One network engine, PowerEmu's Web Accelerator, a web view for the site, SheepShaver for Mac OS 9 software, and an app icon.</string>
+	<key>signature</key>
+	<string>er7PbK5TjGWR7Ej61rLa1IwzKa9jJxTeVrLuDPhk6SRYzt/DakZNb3h2oU7QzfSzWoglKfYdv9iVxTbiebzmDQ==</string>
+</dict>
+</plist>
