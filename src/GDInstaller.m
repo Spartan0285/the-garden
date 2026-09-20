@@ -356,8 +356,11 @@ static int compareVersions(NSArray *a, NSArray *b)
         NSDictionary *e = [library objectAtIndex:i];
         GDItemDetail *d = [[GDCatalog sharedCatalog] detailForPath:[e objectForKey:@"path"]];
         GDFile *f = [GDInstaller newerFileFor:e inDetail:d];
-        GDInstallJob *j = [self jobForItemPath:[e objectForKey:@"path"]];
-        if (f && !(j && [j isActive]))
+        /* A title stays here while its update is downloading and installing -
+         * it is not up to date until that has finished.  Once it has, the
+         * library entry names the new file and there is nothing newer, so the
+         * row leaves by itself. */
+        if (f)
             [u addObject:[NSDictionary dictionaryWithObjectsAndKeys:e, @"entry", f, @"file", d, @"detail", nil]];
     }
     if (![u isEqualToArray:updates]) {

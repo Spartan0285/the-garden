@@ -20,6 +20,8 @@
 - (void) loadExtras;
 - (void) drawExtras:(float)w;
 - (void) link:(NSRect)r kind:(NSString *)kind object:(id)o;
+- (void) fillGetMenu:(GDFile *)best;
+- (void) getMenuChose:(id)sender;
 @end
 
 static NSDictionary *textAttrs(NSFont *f, NSColor *c)
@@ -54,6 +56,17 @@ static float textHeight(NSString *s, NSFont *f, float w)
     [getButton setTarget:self];
     [getButton setAction:@selector(getPressed:)];
     [self addSubview:getButton];
+
+    /* The Garden suggests a download, but which one is right is often the
+     * reader's call: a demo, a particular version, the disk image rather than
+     * the archive.  So Get opens the list, with the suggestion at the top. */
+    getMenu = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(LEFT_X, 0, LEFT_W, 32) pullsDown:YES];
+    [getMenu setBezelStyle:NSRoundedBezelStyle];
+    [getMenu setFont:[NSFont boldSystemFontOfSize:13]];
+    /* No action on the pop-up itself: each item carries its own, so a choice
+     * cannot be delivered twice and start two downloads. */
+    [getMenu setHidden:YES];
+    [self addSubview:getMenu];
 
     bar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(LEFT_X, 0, LEFT_W, 12)];
     [bar setStyle:NSProgressIndicatorBarStyle];
@@ -96,7 +109,7 @@ static float textHeight(NSString *s, NSFont *f, float w)
     [moreByAuthor release];
     [related release];
     [path release]; [summary release]; [detail release];
-    [shotRects release]; [descView release]; [getButton release]; [bar release];
+    [shotRects release]; [descView release]; [getButton release]; [getMenu release]; [bar release];
     [fileButtons release];
     [super dealloc];
 }
@@ -145,6 +158,7 @@ static float textHeight(NSString *s, NSFont *f, float w)
 
     /* Get button + progress */
     [getButton setFrame:NSMakeRect(LEFT_X, 28 + 150 + 16, LEFT_W, 32)];
+    [getMenu setFrame:NSMakeRect(LEFT_X, 28 + 150 + 16, LEFT_W, 32)];
     [bar setFrame:NSMakeRect(LEFT_X + 4, NSMaxY([getButton frame]) + 4, LEFT_W - 8, 12)];
     if (job && [job isActive]) {
         [getButton setTitle:@"Cancel"];
@@ -172,6 +186,14 @@ static float textHeight(NSString *s, NSFont *f, float w)
             [getButton setTitle:[NSString stringWithFormat:GDU("Get  \xC2\xB7  %@"),
                                     [best sizeText] ?: @"Download"]];
         [getButton setEnabled:detail != nil && (best != nil || entry != nil)];
+    }
+    /* Nothing installed and something to get: offer the whole list. */
+    {
+        BOOL choose = !(job && [job isActive]) && entry == nil && detail != nil && best != nil;
+        [getMenu setHidden:!choose];
+        [getButton setHidden:choose];
+        if (choose)
+            [self fillGetMenu:best];
     }
 
     /* description text */
@@ -658,6 +680,44 @@ static float textHeight(NSString *s, NSFont *f, float w)
     [GDCompat verdictForItem:detail bestFile:&best];
     if (best && [delegate respondsToSelector:@selector(itemView:getFile:ofItem:)])
         [delegate itemView:self getFile:best ofItem:detail];
+}
+
+/* The downloads, the suggested one first and named as such.  A pull-down's
+ * first item is its title, never chosen, so the files start at index 2. */
+- (void) fillGetMenu:(GDFile *)best
+{
+    NSMenu *m = [[[NSMenu alloc] initWithTitle:@"Get"] autorelease];
+    NSArray *files = [detail files];
+    unsigned i;
+
+    [m addItemWithTitle:[NSString stringWithFormat:GDU("Get  \xC2\xB7  %@"),
+                            [best sizeText] ?: @"Download"]
+                 action:NULL keyEquivalent:@""];
+    [m addItem:[NSMenuItem separatorItem]];
+    for (i = 0; i < [files count]; i++) {
+        GDFile *f = [files objectAtIndex:i];
+        GDVerdict v = [GDCompat verdictForFile:f architecture:[detail architecture]];
+        NSString *title = [NSString stringWithFormat:GDU("%@  \xC2\xB7  %@  \xC2\xB7  %@"),
+                              [f name] ?: @"Download", [f sizeText] ?: @"",
+                              [GDCompat shortLabel:v]];
+        NSMenuItem *it;
+        if (f == best)
+            title = [title stringByAppendingString:@"   (suggested)"];
+        it = [m addItemWithTitle:title action:@selector(getMenuChose:) keyEquivalent:@""];
+        [it setTarget:self];
+        [it setTag:(int)i];
+    }
+    /* A pull-down shows its first item as the button, so that one carries the
+     * suggestion's size and is never chosen. */
+    [getMenu setMenu:m];
+}
+
+- (void) getMenuChose:(id)sender
+{
+    int t = [sender tag];
+    if (t >= 0 && t < (int)[[detail files] count] &&
+        [delegate respondsToSelector:@selector(itemView:getFile:ofItem:)])
+        [delegate itemView:self getFile:[[detail files] objectAtIndex:t] ofItem:detail];
 }
 
 - (void) getFilePressed:(id)sender

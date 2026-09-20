@@ -9,6 +9,11 @@
 #define ENTRY_H 88
 #define BTN_W 116
 
+@interface GDLibraryView (Private)
+- (GDInstallJob *) updateJobAt:(unsigned)k;
+- (void) reload;
+@end
+
 @implementation GDLibraryView
 
 - (id) initWithFrame:(NSRect)f
@@ -98,14 +103,41 @@
 
     if (showsUpdates) {
         NSArray *ups = [inst updates];
-        if ([ups count] > 1)
+        unsigned waiting = 0;
+        for (k = 0; k < [ups count]; k++)
+            if (![self updateJobAt:k])
+                waiting++;
+        if (waiting > 1)
             [self button:@"Update All" at:NSMakeRect(w - MARGIN - BTN_W, 22, BTN_W, 24)
                   action:@selector(updateAll:) tag:0];
         for (k = 0; k < [ups count]; k++) {
             NSRect r = NSMakeRect(MARGIN, y, w - 2 * MARGIN, ROW_H + 8);
-            [self button:@"Update" at:NSMakeRect(NSMaxX(r) - BTN_W - 6, y + 24, BTN_W, 24)
-                  action:@selector(updateOne:) tag:k];
-            [rows addObject:[NSArray arrayWithObjects:@"update", [ups objectAtIndex:k], [NSValue valueWithRect:r], nil]];
+            GDInstallJob *j = [self updateJobAt:k];
+            NSMutableArray *row = [NSMutableArray arrayWithObjects:@"update",
+                                      [ups objectAtIndex:k], [NSValue valueWithRect:r], nil];
+            if (j != nil) {
+                /* Being fetched now: the bar and Cancel, where Update was. */
+                NSProgressIndicator *bar = [[[NSProgressIndicator alloc] initWithFrame:
+                        NSMakeRect(r.origin.x + 84, y + 58, w - 2 * MARGIN - 200, 12)] autorelease];
+                [bar setStyle:NSProgressIndicatorBarStyle];
+                [bar setControlSize:NSSmallControlSize];
+                if ([j progress] < 0) {
+                    [bar setIndeterminate:YES];
+                    [bar startAnimation:nil];
+                } else {
+                    [bar setIndeterminate:NO];
+                    [bar setDoubleValue:[j progress] * 100];
+                }
+                [self addSubview:bar];
+                [controls addObject:bar];
+                [row addObject:bar];
+                [self button:@"Cancel" at:NSMakeRect(NSMaxX(r) - BTN_W - 6, y + 24, BTN_W, 24)
+                      action:@selector(cancelUpdate:) tag:k];
+            } else {
+                [self button:@"Update" at:NSMakeRect(NSMaxX(r) - BTN_W - 6, y + 24, BTN_W, 24)
+                      action:@selector(updateOne:) tag:k];
+            }
+            [rows addObject:row];
             y += ROW_H + 16;
         }
         lib = [NSArray array];
@@ -269,16 +301,22 @@ static NSRect titleRect(NSRect row)
             GDDrawText([e objectForKey:@"title"], titleRect(r), [NSFont boldSystemFontOfSize:12],
                        [NSColor blackColor], YES);
             [linkText() drawInRect:linkRect(r) withAttributes:linkAttrs()];
-            GDDrawText([NSString stringWithFormat:@"Installed: %@", [e objectForKey:@"file"]],
-                       NSMakeRect(r.origin.x + 84, r.origin.y + 26, r.size.width - 220, 14),
-                       [NSFont systemFontOfSize:10], GDSubtleTextColor(), YES);
+            {
+                GDInstallJob *j = [self updateJobAt:i];
+                NSString *line = j != nil ? [j status]
+                    : [NSString stringWithFormat:@"Installed: %@", [e objectForKey:@"file"]];
+                GDDrawText(line, NSMakeRect(r.origin.x + 84, r.origin.y + 26, r.size.width - 220, 14),
+                           [NSFont systemFontOfSize:10],
+                           j != nil ? [NSColor blackColor] : GDSubtleTextColor(), YES);
+            }
             GDDrawText([NSString stringWithFormat:@"New: %@  %@  %@", [f name], [f sizeText] ?: @"",
                            [f date] ?: @""],
                        NSMakeRect(r.origin.x + 84, r.origin.y + 42, r.size.width - 220, 14),
                        [NSFont boldSystemFontOfSize:10], GDBadgeColor(GDVerdictNative), YES);
-            GDDrawText(@"Your current copy moves to the Trash once the update is installed.",
-                       NSMakeRect(r.origin.x + 84, r.origin.y + 58, r.size.width - 220, 14),
-                       [NSFont systemFontOfSize:9], GDSubtleTextColor(), YES);
+            if ([self updateJobAt:i] == nil)
+                GDDrawText(@"Your current copy moves to the Trash once the update is installed.",
+                           NSMakeRect(r.origin.x + 84, r.origin.y + 58, r.size.width - 220, 14),
+                           [NSFont systemFontOfSize:9], GDSubtleTextColor(), YES);
         }
         return;
     }
@@ -381,6 +419,26 @@ static NSRect titleRect(NSRect row)
 
 /* ---------------------------------------------------------------- actions */
 
+/* The job installing update k, while it runs; nil when nothing is. */
+- (GDInstallJob *) updateJobAt:(unsigned)k
+{
+    NSArray *ups = [[GDInstaller sharedInstaller] updates];
+    NSDictionary *e;
+    GDInstallJob *j;
+    if (k >= [ups count])
+        return nil;
+    e = [[ups objectAtIndex:k] objectForKey:@"entry"];
+    j = [[GDInstaller sharedInstaller] jobForItemPath:[e objectForKey:@"path"]];
+    return (j != nil && [j isActive]) ? j : nil;
+}
+
+- (void) cancelUpdate:(id)s
+{
+    GDInstallJob *j = [self updateJobAt:(unsigned)[s tag]];
+    if (j != nil)
+        [[GDInstaller sharedInstaller] cancel:j];
+}
+
 - (GDInstallJob *) jobFor:(id)sender
 {
     NSArray *jobs = [[GDInstaller sharedInstaller] jobs];
@@ -417,7 +475,8 @@ static NSRect titleRect(NSRect row)
     NSArray *ups = [[[[GDInstaller sharedInstaller] updates] copy] autorelease];
     unsigned i;
     for (i = 0; i < [ups count]; i++)
-        [[GDInstaller sharedInstaller] installUpdate:[ups objectAtIndex:i]];
+        if ([self updateJobAt:i] == nil)
+            [[GDInstaller sharedInstaller] installUpdate:[ups objectAtIndex:i]];
 }
 
 - (void) dockEntry:(id)s

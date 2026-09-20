@@ -32,6 +32,8 @@
 - (NSWindow *) window;
 - (void) go:(NSDictionary *)p;
 - (int) pendingRequests;
+/* The page on screen, in a few words, for a feedback report. */
+- (NSString *) currentPageDescription;
 
 /* menu / toolbar actions */
 - (IBAction) goBack:(id)sender;

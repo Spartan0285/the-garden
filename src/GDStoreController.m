@@ -296,6 +296,18 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     }
 }
 
+- (NSString *) currentPageDescription
+{
+    NSString *kind = [page objectForKey:@"kind"] ?: @"";
+    NSString *path = [page objectForKey:@"path"];
+    NSString *keys = [page objectForKey:@"keys"];
+    if ([path length])
+        return [NSString stringWithFormat:@"%@ %@", kind, path];
+    if ([keys length])
+        return [NSString stringWithFormat:@"search \"%@\"", keys];
+    return kind;
+}
+
 - (void) go:(NSDictionary *)p
 {
     while ((int)[history count] > historyIndex + 1)

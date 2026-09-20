@@ -28,6 +28,7 @@
     NSMutableArray *shotRects;  /* {rect, url} */
     NSTextView *descView;
     NSButton *getButton;
+    NSPopUpButton *getMenu;     /* the downloads, when there is a choice */
     NSProgressIndicator *bar;
     NSMutableArray *fileButtons;
     float descHeight;

@@ -6,6 +6,7 @@
 #import "GDAccelerator.h"
 #import "GDSelfUpdate.h"
 #import "GDStyle.h"
+#import "GDFeedback.h"
 
 static NSMenu *addSubmenu(NSMenu *bar, NSString *title)
 {
@@ -37,6 +38,7 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     addItem(m, @"About The Garden", @selector(orderFrontStandardAboutPanel:), nil);
     [m addItem:[NSMenuItem separatorItem]];
     addItem(m, GDU("Check for Updates\xE2\x80\xA6"), @selector(checkForUpdates:), nil);
+    addItem(m, GDU("Send Feedback\xE2\x80\xA6"), @selector(sendFeedback:), nil);
     [m addItem:[NSMenuItem separatorItem]];
     addItem(m, @"Hide The Garden", @selector(hide:), @"h");
     it = addItem(m, @"Hide Others", @selector(hideOtherApplications:), @"h");
@@ -90,6 +92,8 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     NSString *debugPage = [d stringForKey:@"GDDebugPage"];
     /* Look for PowerEmu's Web Accelerator; nothing waits on the answer. */
     [GDAccelerator start];
+    /* Reports that could not be sent last time go now, quietly. */
+    [GDFeedback performSelector:@selector(sendQueuedReports) withObject:nil afterDelay:8.0];
     /* And for a newer Garden, once a day, quietly. */
     if ([d boolForKey:@"GDDebugUpdate"])
         [[GDSelfUpdate sharedUpdater] performSelector:@selector(checkAndInstallNow)
@@ -124,6 +128,11 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
 - (IBAction) checkForUpdates:(id)sender
 {
     [[GDSelfUpdate sharedUpdater] checkForUpdates:sender];
+}
+
+- (IBAction) sendFeedback:(id)sender
+{
+    [GDFeedback openForWindow:[store window] page:[store currentPageDescription]];
 }
 
 - (void) debugTick:(NSTimer *)t
@@ -176,6 +185,12 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
             }
         }
     }
+    /* Optional: open the feedback window and snapshot that instead. */
+    if ([d boolForKey:@"GDDebugFeedback"] && !debugWebOpened && debugQuiet >= 4) {
+        [self sendFeedback:nil];
+        debugWebOpened = YES;
+        debugQuiet = 0;
+    }
     /* Optional: open the page on the site in a web view, and snapshot that
      * window instead (the WebKit bridge, GDWebProtocol). */
     if ([d boolForKey:@"GDDebugViewOnSite"]) {
@@ -188,6 +203,10 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         if (debugWebOpened)
             debugQuiet = (++webTicks >= 12) ? 4 : 0;
     }
+    /* Snapshot at a fixed moment even while something is still running: the
+     * only way to photograph a download in progress. */
+    if ([d integerForKey:@"GDDebugSnapshotAt"] > 0 && ticks >= [d integerForKey:@"GDDebugSnapshotAt"])
+        debugQuiet = 4;
     if ((debugQuiet >= 4 && ticks >= [d integerForKey:@"GDDebugMinSeconds"]) || ticks > 240) {
         NSWindow *win = (debugWebOpened && [NSApp keyWindow] != nil) ? [NSApp keyWindow] : [store window];
         NSView *view = [[win contentView] superview];
