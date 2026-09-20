@@ -692,7 +692,7 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     curl_easy_setopt(h, CURLOPT_HTTPHEADER, headers);
 
     if (postBody != nil) {
-        curl_easy_setopt(h, CURLOPT_POSTFIELDS, [postBody bytes]);
+        curl_easy_setopt(h, CURLOPT_POSTFIELDS, [postBody length] ? [postBody bytes] : "");
         curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)[postBody length]);
     }
 

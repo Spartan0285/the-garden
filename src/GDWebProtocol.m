@@ -3,6 +3,33 @@
 #import <CoreServices/CoreServices.h>
 #include <dlfcn.h>
 
+/* Headers that belong to one hop of a connection, not to the message
+ * (RFC 7230 section 6.1).  libcurl has already applied them by the time the
+ * body reaches us - it de-chunks a chunked response itself - so handing them
+ * to WebKit would have it apply them a second time: it would wait for a
+ * terminating chunk that an already de-chunked body will never carry, and the
+ * page would never finish loading. */
+static BOOL isHopByHop(NSString *name)
+{
+    static NSSet *names = nil;
+    if (names == nil)
+        names = [[NSSet alloc] initWithObjects:@"transfer-encoding", @"connection",
+                 @"keep-alive", @"proxy-authenticate", @"proxy-authorization",
+                 @"proxy-connection", @"te", @"trailer", @"upgrade", nil];
+    return [names containsObject:[name lowercaseString]];
+}
+
+static NSDictionary *withoutHopByHop(NSDictionary *headers)
+{
+    NSMutableDictionary *kept = [NSMutableDictionary dictionary];
+    NSEnumerator *names = [headers keyEnumerator];
+    NSString *name;
+    while ((name = [names nextObject]) != nil)
+        if (!isHopByHop(name))
+            [kept setObject:[headers objectForKey:name] forKey:name];
+    return kept;
+}
+
 /* "text/html; charset=utf-8" -> "text/html" and "utf-8". */
 static void splitContentType(NSString *value, NSString **type, NSString **encoding)
 {
@@ -64,8 +91,11 @@ static void splitContentType(NSString *value, NSString **type, NSString **encodi
     [headers removeObjectForKey:@"Host"];
 
     request_ = [[GDHTTPRequest requestWithURL:[r URL]] retain];
-    if ([[r HTTPMethod] isEqualToString:@"POST"] && [r HTTPBody] != nil)
-        [request_ setPostBody:[r HTTPBody]];
+    /* A POST with no body still has a body of nothing: without
+     * Content-Length: 0 a server cannot tell the request is complete, and
+     * answers 411. */
+    if ([[r HTTPMethod] isEqualToString:@"POST"])
+        [request_ setPostBody:[r HTTPBody] ?: [NSData data]];
     [request_ setRequestHeaders:headers];
     [request_ setWantsResponseHeaders:YES];
     /* The site's session is the whole point of a web view here. */
@@ -76,7 +106,7 @@ static void splitContentType(NSString *value, NSString **type, NSString **encodi
 
 - (void) httpRequestDidFinish:(GDHTTPRequest *)r
 {
-    NSDictionary *fields = [r responseHeaders];
+    NSDictionary *fields = withoutHopByHop([r responseHeaders]);
     NSString *type = nil, *encoding = nil;
     NSURL *responseURL;
     GDHTTPURLResponse *response;

@@ -1,5 +1,6 @@
 #import "GDAccelerator.h"
 #include <Security/Security.h>
+#include <pthread.h>
 #include <ApplicationServices/ApplicationServices.h>
 #include <curl/curl.h>
 #include <netinet/in.h>
@@ -22,6 +23,7 @@ static NSLock *stateLock = nil;
 static NSString *baseURL = nil;             /* nil: not available */
 static NSString *serverName = nil;          /* "Adam's MacBook Air" */
 static NSString *token = nil;               /* for a PowerEmu on the network */
+static NSString *cachedPairingCode = nil;   /* nil: not read from the Keychain yet */
 static NSTimeInterval failedUntil = 0;
 static BOOL probing = NO;
 static BOOL sawServiceWithoutCode = NO;
@@ -32,6 +34,8 @@ static NSMutableArray *services = nil;
 static NSTimer *retryTimer = nil;
 
 @interface GDAccelerator (Private)
++ (NSString *) readPairingCodeFromKeychain;
++ (void) loadPairingCodeThread:(id)unused;
 + (NSString *) configuredBase;
 + (void) probe;
 + (void) probeThread:(id)unused;
@@ -95,22 +99,28 @@ static BOOL isLocalHost(NSString *host)
     [self start];
 }
 
+/* Reading the Keychain can block for a long time: the first read from a newly
+ * installed or rebuilt copy puts up "The Garden wants to use your keychain",
+ * and the call does not return until that is answered.  Bonjour delivers its
+ * callbacks on the main thread, so asking there froze the whole app on the
+ * first PowerEmu it found, with nobody at the keyboard.  It is read once, on a
+ * thread, and kept. */
 + (NSString *) pairingCode
 {
-    UInt32 length = 0;
-    void *data = NULL;
-    NSString *code = nil;
+    NSString *code;
 
-    if (SecKeychainFindGenericPassword(NULL,
-            strlen(GDAcceleratorKeychainService), GDAcceleratorKeychainService,
-            strlen(GDAcceleratorKeychainAccount), GDAcceleratorKeychainAccount,
-            &length, &data, NULL) == noErr) {
-        code = [[[NSString alloc] initWithBytes:data length:length
-                                       encoding:NSUTF8StringEncoding] autorelease];
-        SecKeychainItemFreeContent(NULL, data);
+    [stateLock lock];
+    code = [[cachedPairingCode retain] autorelease];
+    [stateLock unlock];
+    if (code == nil) {
+        if (pthread_main_np())      /* not here: answer with what we have */
+            [NSThread detachNewThreadSelector:@selector(loadPairingCodeThread:)
+                                     toTarget:self withObject:nil];
+        else
+            code = [self readPairingCodeFromKeychain];
     }
     /* Not in the Keychain: a code set by hand, which is how a Mac with no
-     * preferences window (or a test script) gets one. */
+     * preferences window (or a test script) gets one.  Cheap on any thread. */
     if ([code length] == 0)
         code = [[NSUserDefaults standardUserDefaults]
                    stringForKey:@"GDAcceleratorPairingCode"];
@@ -124,6 +134,10 @@ static BOOL isLocalHost(NSString *host)
 
     code = [code stringByTrimmingCharactersInSet:
                      [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    [stateLock lock];
+    [cachedPairingCode release];
+    cachedPairingCode = [code copy];
+    [stateLock unlock];
     secret = [code UTF8String];
     if (SecKeychainFindGenericPassword(NULL,
             strlen(GDAcceleratorKeychainService), GDAcceleratorKeychainService,
@@ -317,6 +331,38 @@ static BOOL isLocalHost(NSString *host)
 
 @implementation GDAccelerator (Private)
 
+/* Only ever called off the main thread. */
++ (NSString *) readPairingCodeFromKeychain
+{
+    UInt32 length = 0;
+    void *data = NULL;
+    NSString *code = nil;
+
+    if (SecKeychainFindGenericPassword(NULL,
+            strlen(GDAcceleratorKeychainService), GDAcceleratorKeychainService,
+            strlen(GDAcceleratorKeychainAccount), GDAcceleratorKeychainAccount,
+            &length, &data, NULL) == noErr) {
+        code = [[[NSString alloc] initWithBytes:data length:length
+                                       encoding:NSUTF8StringEncoding] autorelease];
+        SecKeychainItemFreeContent(NULL, data);
+    }
+    [stateLock lock];
+    [cachedPairingCode release];
+    cachedPairingCode = [(code != nil ? code : @"") copy];
+    [stateLock unlock];
+    return code;
+}
+
++ (void) loadPairingCodeThread:(id)unused
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    NSString *code = [self readPairingCodeFromKeychain];
+    /* Found one after the search had already given up for want of it. */
+    if ([code length] > 0)
+        [self performSelectorOnMainThread:@selector(start) withObject:nil waitUntilDone:NO];
+    [pool release];
+}
+
 /* An address given by hand ("http://host:7780/"), for a network where Bonjour
  * does not reach: it is used in place of the search, with the pairing code. */
 + (NSString *) configuredBase
@@ -356,6 +402,8 @@ static BOOL isLocalHost(NSString *host)
     long status = 0;
     NSDictionary *hello;
 
+    /* Here, not in the Bonjour callback, which runs on the main thread. */
+    [self readPairingCodeFromKeychain];
     if (configured != nil) {
         NSString *code = [self pairingCode];
         hello = [self helloAt:configured token:code connectTimeoutMs:1500 status:&status];
