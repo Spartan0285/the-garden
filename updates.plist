@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3.3 Alpha</string>
+	<string>0.3.4 Alpha</string>
 	<key>build</key>
-	<string>10</string>
+	<string>11</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.3/TheGarden-0.3.3.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.4/TheGarden-0.3.4.zip</string>
 	<key>sha256</key>
-	<string>c2e54b529a04463a40d196005435aff761a6e1c9c96e32f98ae6cedb9af963c8</string>
+	<string>b649da378de45f13aa69c24234b7aa735c01aec7d1509503e96bee5b9e4e20d0</string>
 	<key>size</key>
-	<string>6822898</string>
+	<string>6830100</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Important: installing from a disk image no longer follows its Applications alias. It could copy your whole Applications folder into itself until the disk filled. Also fixes the Library progress bar drawing over its own status text.</string>
+	<string>Get offers the program rather than the documentation beside it. Installing a title again uses the copy already downloaded instead of fetching it a second time.</string>
 	<key>signature</key>
-	<string>TUROvc22vrPpwg+gVv9V3pltVasio45Ika8RPelaO8NN6owKKQnXECNEJ371jPVNLl23vNFMEy8gSuWi6k49Ag==</string>
+	<string>4fy+xYxQ8ScsSPe4z4bu3PvCo7atgmIEFJN8X9fw98nbBnMNuu5jsaBSrsXJWPPMvJAkf6d8Cl856C66bJhuAg==</string>
 </dict>
 </plist>
