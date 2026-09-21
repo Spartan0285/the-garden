@@ -35,7 +35,7 @@
 - (void) dealloc
 {
     [name release]; [sizeText release]; [date release]; [md5 release];
-    [systems release]; [mirrors release];
+    [systems release]; [note release]; [mirrors release];
     [super dealloc];
 }
 - (NSString *) name { return name; }
@@ -44,6 +44,7 @@
 - (NSString *) date { return date; }
 - (NSString *) md5 { return md5; }
 - (NSString *) systems { return systems; }
+- (NSString *) note { return note; }
 - (NSArray *) mirrors { return mirrors; }
 - (int) index { return index; }
 @end
@@ -444,6 +445,84 @@ static double parseSize(NSString *s)
     return v;
 }
 
+/* The page's own number for a download block: its "#3, 2012-03-21" line.
+ * Falls back to -1 when the block has none, as the "Purchase" block does. */
+static int downloadNumber(NSString *numeral)
+{
+    NSRange r = [numeral ?: @"" rangeOfString:@"#"];
+    NSScanner *sc;
+    int n = 0;
+    if (r.location == NSNotFound)
+        return -1;
+    sc = [NSScanner scannerWithString:[numeral substringFromIndex:NSMaxRange(r)]];
+    return [sc scanInt:&n] && n > 0 ? n : -1;
+}
+
+/* The numbers a description line is about: "DL #3", "DL #1 and #2", or the
+ * other spelling the Garden uses, "The 3rd download".  Nothing, when the line
+ * is ordinary prose. */
+static NSArray *downloadsNamedBy(NSString *line, unsigned *textStart)
+{
+    NSMutableArray *which = [NSMutableArray array];
+    NSScanner *sc = [NSScanner scannerWithString:line];
+    int n = 0;
+
+    [sc setCharactersToBeSkipped:[NSCharacterSet whitespaceCharacterSet]];
+    [sc scanString:@"the" intoString:NULL];
+    if ([sc scanString:@"DL" intoString:NULL] || [sc scanString:@"download" intoString:NULL]) {
+        [sc scanString:@"s" intoString:NULL];
+        while ([sc scanString:@"#" intoString:NULL]) {
+            if (![sc scanInt:&n] || n <= 0)
+                break;
+            [which addObject:[NSNumber numberWithInt:n]];
+            /* "#1, #2", "#1 & #2", "#1 and #2" */
+            if (![sc scanString:@"," intoString:NULL] && ![sc scanString:@"&" intoString:NULL])
+                [sc scanString:@"and" intoString:NULL];
+        }
+    } else if ([sc scanInt:&n] && n > 0 &&
+               ([sc scanString:@"st" intoString:NULL] || [sc scanString:@"nd" intoString:NULL] ||
+                [sc scanString:@"rd" intoString:NULL] || [sc scanString:@"th" intoString:NULL]) &&
+               ([sc scanString:@"download" intoString:NULL] || [sc scanString:@"file" intoString:NULL])) {
+        [sc scanString:@"s" intoString:NULL];
+        [which addObject:[NSNumber numberWithInt:n]];
+    }
+    *textStart = [sc scanLocation];
+    return which;
+}
+
+/* The description usually says what each download is - "DL #3: PDF of an
+ * interview with ...", one per line.  Hand each line to the file it names,
+ * which is what tells the interview apart from the game. */
+static void attachDownloadNotes(NSString *desc, NSArray *files)
+{
+    NSEnumerator *lines = [[desc componentsSeparatedByString:@"\n"] objectEnumerator];
+    NSCharacterSet *white = [NSCharacterSet whitespaceCharacterSet];
+    NSCharacterSet *lead = [NSCharacterSet characterSetWithCharactersInString:@" \t:.-"];
+    NSString *line;
+
+    while ((line = [lines nextObject]) != nil) {
+        NSArray *which;
+        NSString *text;
+        unsigned i, j, at = 0;
+
+        line = [line stringByTrimmingCharactersInSet:white];
+        which = downloadsNamedBy(line, &at);
+        if ([which count] == 0)
+            continue;
+        text = [[line substringFromIndex:at] stringByTrimmingCharactersInSet:lead];
+        if ([text length] == 0)
+            continue;
+        for (i = 0; i < [which count]; i++) {
+            int want = [[which objectAtIndex:i] intValue] - 1;
+            for (j = 0; j < [files count]; j++) {
+                GDFile *f = [files objectAtIndex:j];
+                if (f->index == want && f->note == nil)
+                    f->note = [text retain];
+            }
+        }
+    }
+}
+
 + (GDItemDetail *) parseItem:(NSData *)html path:(NSString *)path
 {
     htmlDocPtr doc = parseHTML(html);
@@ -493,9 +572,13 @@ static double parseSize(NSString *s)
             GDFile *f = [[[GDFile alloc] init] autorelease];
             NSString *line = firstText(ctx, note, "./small[i]");
             NSString *all = nodeText(note);
+            NSString *numeral = firstText(ctx, note, ".//div[contains(@class,'numeral')]/small");
+            int num = downloadNumber(numeral);
             NSRange r;
 
-            f->index = i;
+            /* The page's DL number, so that the description's "DL #N:" lines
+             * line up even when a block in between is not a download. */
+            f->index = num > 0 ? num - 1 : (int)i;
             f->mirrors = [fileMirrors(ctx, note) retain];
             if (line) {
                 r = [line rangeOfString:@"(" options:NSBackwardsSearch];
@@ -512,16 +595,18 @@ static double parseSize(NSString *s)
                                [NSCharacterSet whitespaceCharacterSet]] retain];
                 f->sizeBytes = parseSize(f->sizeText);
             }
-            s = firstText(ctx, note, ".//div[contains(@class,'numeral')]/small");
-            if (s) {
-                r = [s rangeOfString:@", "];
-                f->date = [(r.location != NSNotFound ? [s substringFromIndex:NSMaxRange(r)] : s) retain];
+            if (numeral) {
+                r = [numeral rangeOfString:@", "];
+                f->date = [(r.location != NSNotFound ? [numeral substringFromIndex:NSMaxRange(r)]
+                                                     : numeral) retain];
             }
             f->md5 = [firstText(ctx, note, ".//a[contains(@href,'arch_md5')]") retain];
             r = [all rangeOfString:@" For " options:NSBackwardsSearch];
             if (r.location != NSNotFound)
                 f->systems = [[all substringFromIndex:NSMaxRange(r)] retain];
-            if ([f->mirrors count])
+            /* A block with no named file is not a download: the "Purchase"
+             * block links to the publisher's store. */
+            if ([f->name length] && [f->mirrors count])
                 [files addObject:f];
         }
         if (o)
@@ -547,6 +632,7 @@ static double parseSize(NSString *s)
             [desc appendString:s];
     }
     D->descriptionText = [desc retain];
+    attachDownloadNotes(desc, files);
 
     /* "See also" - other Garden items linked from the description. */
     {

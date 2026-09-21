@@ -58,8 +58,9 @@ typedef enum {
     NSString *date;         /* "2009-04-24" */
     NSString *md5;
     NSString *systems;      /* "System 7.0 - 7.6 - Mac OS 9", "Mac OS X" */
+    NSString *note;         /* the description's "DL #N:" line, if it has one */
     NSArray *mirrors;       /* absolute URLs, best first */
-    int index;
+    int index;              /* the page's own DL number, less one */
 }
 - (NSString *) name;
 - (NSString *) sizeText;
@@ -67,6 +68,7 @@ typedef enum {
 - (NSString *) date;
 - (NSString *) md5;
 - (NSString *) systems;
+- (NSString *) note;
 - (NSArray *) mirrors;
 - (int) index;
 @end
