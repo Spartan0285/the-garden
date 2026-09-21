@@ -4,13 +4,13 @@
 
 APP_NAME = The Garden
 EXEC     = TheGarden
-VERSION  = 0.3.3
+VERSION  = 0.3.4
 # Alpha, Beta, or empty once it is neither.  Shown in the About window, the
 # window title and every feedback report.
 STAGE    = Alpha
 # CFBundleVersion: a whole number, up by one each release.  The updater
 # compares these, never the version people read.
-BUILD_NUMBER = 10
+BUILD_NUMBER = 11
 
 SDK       ?= /Developer/SDKs/MacOSX10.4u.sdk
 # Static OpenSSL 3 + libcurl 8 per architecture, as built for Captain Polliwog.
