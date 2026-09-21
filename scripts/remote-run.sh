@@ -43,7 +43,7 @@ $SSH "$host" "
     $extra
     open '$APP'
     i=0; while [ ! -f $snap ] && [ \$i -lt 300 ]; do sleep 2; i=\$((i + 2)); done
-    for k in GDDebugSnapshotPath GDDebugPage GDDebugInstallFile GDDebugMinSeconds GDDebugQuit GDDebugScroll GDDebugDock GDDebugViewOnSite GDDebugHostArch GDDebugHostOS GDDebugUpdate GDDebugSnapshotAt GDDebugFeedback GDDebugAbout; do
+    for k in GDDebugSnapshotPath GDDebugPage GDDebugInstallFile GDDebugMinSeconds GDDebugQuit GDDebugScroll GDDebugDock GDDebugViewOnSite GDDebugHostArch GDDebugHostOS GDDebugUpdate GDDebugSnapshotAt GDDebugFeedback GDDebugAbout GDDebugShowLibraryAt; do
         defaults delete org.macintoshgarden.store \$k 2>/dev/null; done
     echo \"==> page settled after ~\${i}s\"
     ps -axww -o rss,command | awk '/MacOS\/[T]heGarden/ { printf \"==> memory %d MB\\n\", \$1 / 1024 }'

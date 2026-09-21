@@ -191,6 +191,12 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
             }
         }
     }
+    /* Optional: once an install is running, switch to the Library, which is
+     * where its progress is shown.  With GDDebugSnapshotAt this photographs a
+     * job row mid-install. */
+    if ([d integerForKey:@"GDDebugShowLibraryAt"] > 0 &&
+        ticks == [d integerForKey:@"GDDebugShowLibraryAt"])
+        [store showLibrary:nil];
     /* Optional: open the About window and snapshot that instead. */
     if ([d boolForKey:@"GDDebugAbout"] && !debugWebOpened && debugQuiet >= 4) {
         [self showAbout:nil];
