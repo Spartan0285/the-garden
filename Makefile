@@ -17,6 +17,16 @@ SDK       ?= /Developer/SDKs/MacOSX10.4u.sdk
 DEPS_ROOT ?= $(HOME)/polliwog-deps
 ARCHS     ?= ppc i386
 CC        = gcc-4.0
+# One compiler per architecture.  On a PowerPC Mac with Xcode these are Apple's
+# gcc-4.0 with -arch; scripts/cross-build.sh points them at the GCC 6.5 cross
+# compilers in the build VM instead (scripts/toolchain/build-i386-toolchain.sh).
+CC_ppc    ?= $(CC) -arch ppc
+CC_i386   ?= $(CC) -arch i386
+LIPO      ?= lipo
+# Copies a folder to a new place, keeping its symbolic links.  ditto on a Mac;
+# "cp -a" in the Linux build VM, which has none.  Every use copies into a
+# destination that does not exist yet, where the two behave the same.
+DITTO     ?= ditto
 BUILD     = build
 APP       = $(BUILD)/$(APP_NAME).app
 
@@ -31,8 +41,8 @@ HEADERS = $(wildcard src/*.h)
 # Contents/Frameworks, where their @executable_path install names point.
 VENDOR  = vendor
 CFLAGS  = -isysroot $(SDK) -Os -Wall -Wno-unused-parameter -Isrc -I$(SDK)/usr/include/libxml2 -F$(VENDOR)
-CFLAGS_ppc  = -mcpu=G3 -mtune=G4
-CFLAGS_i386 = -march=prescott
+CFLAGS_ppc  ?= -mcpu=G3 -mtune=G4
+CFLAGS_i386 ?= -march=prescott
 LDBASE  = -isysroot $(SDK) -Wl,-syslibroot,$(SDK) -lxml2 -framework SystemConfiguration -framework CoreFoundation -framework Security -framework ApplicationServices
 LDAPP   = $(LDBASE) -framework Cocoa -framework WebKit -F$(VENDOR) -framework XADMaster -framework UniversalDetector
 LDTOOL  = $(LDBASE) -framework Foundation
@@ -54,42 +64,42 @@ DEPS_i386  = $(patsubst %,$(DEPS_ROOT)/i386/lib/%,$(DEPS_LIBS))
 
 $(BUILD)/ppc/%.o: src/%.m $(HEADERS)
 	@mkdir -p $(BUILD)/ppc
-	$(CC) -arch ppc $(CFLAGS) $(CFLAGS_ppc) -I$(DEPS_ROOT)/ppc/include -c $< -o $@
+	$(CC_ppc) $(CFLAGS) $(CFLAGS_ppc) -I$(DEPS_ROOT)/ppc/include -c $< -o $@
 
 $(BUILD)/i386/%.o: src/%.m $(HEADERS)
 	@mkdir -p $(BUILD)/i386
-	$(CC) -arch i386 $(CFLAGS) $(CFLAGS_i386) -I$(DEPS_ROOT)/i386/include -c $< -o $@
+	$(CC_i386) $(CFLAGS) $(CFLAGS_i386) -I$(DEPS_ROOT)/i386/include -c $< -o $@
 
 $(BUILD)/ppc/gdtool.o: tools/gdtool.m $(HEADERS)
 	@mkdir -p $(BUILD)/ppc
-	$(CC) -arch ppc $(CFLAGS) $(CFLAGS_ppc) -I$(DEPS_ROOT)/ppc/include -c $< -o $@
+	$(CC_ppc) $(CFLAGS) $(CFLAGS_ppc) -I$(DEPS_ROOT)/ppc/include -c $< -o $@
 
 $(BUILD)/i386/gdtool.o: tools/gdtool.m $(HEADERS)
 	@mkdir -p $(BUILD)/i386
-	$(CC) -arch i386 $(CFLAGS) $(CFLAGS_i386) -I$(DEPS_ROOT)/i386/include -c $< -o $@
+	$(CC_i386) $(CFLAGS) $(CFLAGS_i386) -I$(DEPS_ROOT)/i386/include -c $< -o $@
 
 # ---- command-line test tool
 $(BUILD)/ppc/gdtool: $(BUILD)/ppc/gdtool.o $(CORE_ppc)
-	$(CC) -arch ppc $^ $(DEPS_ppc) $(LDTOOL) -o $@
+	$(CC_ppc) $^ $(DEPS_ppc) $(LDTOOL) -o $@
 
 $(BUILD)/i386/gdtool: $(BUILD)/i386/gdtool.o $(CORE_i386)
-	$(CC) -arch i386 $^ $(DEPS_i386) $(LDTOOL) -o $@
+	$(CC_i386) $^ $(DEPS_i386) $(LDTOOL) -o $@
 
 $(BUILD)/gdtool: $(patsubst %,$(BUILD)/%/gdtool,$(ARCHS))
-	lipo -create $^ -output $@
+	$(LIPO) -create $^ -output $@
 	cp Resources/cacert.pem $(BUILD)/
 
 tool: $(BUILD)/gdtool
 
 # ---- the app
 $(BUILD)/ppc/$(EXEC): $(APP_ppc) $(CORE_ppc)
-	$(CC) -arch ppc $^ $(DEPS_ppc) $(LDAPP) -o $@
+	$(CC_ppc) $^ $(DEPS_ppc) $(LDAPP) -o $@
 
 $(BUILD)/i386/$(EXEC): $(APP_i386) $(CORE_i386)
-	$(CC) -arch i386 $^ $(DEPS_i386) $(LDAPP) -o $@
+	$(CC_i386) $^ $(DEPS_i386) $(LDAPP) -o $@
 
 $(BUILD)/$(EXEC): $(patsubst %,$(BUILD)/%/$(EXEC),$(ARCHS))
-	lipo -create $^ -output $@
+	$(LIPO) -create $^ -output $@
 
 app: $(BUILD)/$(EXEC) Resources/Info.plist Resources/cacert.pem
 	@rm -rf "$(APP)"
@@ -102,12 +112,12 @@ app: $(BUILD)/$(EXEC) Resources/Info.plist Resources/cacert.pem
 	@cp Resources/*.icns Resources/*.txt "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@# Named, not Resources/*.png: the 1024px icon artwork stays out of the bundle.
 	@cp Resources/cytruslogo.png "$(APP)/Contents/Resources/" 2>/dev/null; true
-	@ditto Resources/Licenses "$(APP)/Contents/Resources/Licenses"
+	@$(DITTO) Resources/Licenses "$(APP)/Contents/Resources/Licenses"
 	@mkdir -p "$(APP)/Contents/Frameworks"
-	@ditto $(VENDOR)/XADMaster.framework "$(APP)/Contents/Frameworks/XADMaster.framework"
-	@ditto $(VENDOR)/UniversalDetector.framework "$(APP)/Contents/Frameworks/UniversalDetector.framework"
+	@$(DITTO) $(VENDOR)/XADMaster.framework "$(APP)/Contents/Frameworks/XADMaster.framework"
+	@$(DITTO) $(VENDOR)/UniversalDetector.framework "$(APP)/Contents/Frameworks/UniversalDetector.framework"
 	@rm -rf "$(APP)/Contents/Frameworks/"*.framework/Versions/A/Headers "$(APP)/Contents/Frameworks/"*.framework/Headers
-	@echo "Built $(APP) ($$(lipo -info $(BUILD)/$(EXEC) | sed 's/.*: //'))"
+	@echo "Built $(APP) ($$($(LIPO) -info $(BUILD)/$(EXEC) | sed 's/.*: //'))"
 
 clean:
 	rm -rf $(BUILD)

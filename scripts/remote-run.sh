@@ -4,7 +4,8 @@
 #   Usage: scripts/remote-run.sh host [page] [extra defaults...]
 #   page: featured (default) | apps | games | categories | library |
 #         /apps/slug | search:words
-#   host: g3 (PowerBook G3), ibook (iBook G4), pbg4 (PowerBook G4, .151), tiger (the QEMU guest)
+#   CPGZ=build/cross.cpgz scripts/remote-run.sh host ...   (a cross-built app)
+#   host: g3 (PowerBook G3), ibook (iBook G4), pbg4 (PowerBook G4, by name in ~/.ssh/config), tiger (the QEMU guest)
 set -e
 cd "$(dirname "$0")/.."
 host=${1:?usage: remote-run.sh host [page]}
@@ -13,7 +14,6 @@ shift 2 2>/dev/null || shift $#
 SSH="ssh -o ConnectTimeout=60"
 SCP="scp -q -o ConnectTimeout=60"
 case "$host" in
-pbg4) SSH="$SSH -o HostName=192.168.68.151"; SCP="$SCP -o HostName=192.168.68.151" ;;
 tiger) # the QEMU guest: key and legacy algorithms as in the QEMU project's gssh.sh
        K=${POWEREMU_GUEST_KEY:-$HOME/.ssh/poweremu_guest}
        OPTS="-i $K -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o KexAlgorithms=+diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1 -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1"
@@ -22,11 +22,16 @@ tiger) # the QEMU guest: key and legacy algorithms as in the QEMU project's gssh
 esac
 mkdir -p build/screens
 BUILDHOST=${BUILDHOST:-ibook}     # where scripts/remote-build.sh ran
-if [ "$host" != "$BUILDHOST" ]; then
-    # cpio, not zip: Leopard's ditto writes broken zips around the
-    # frameworks' symlinks, and Tiger's tools can't read its zips anyway.
-    ssh $BUILDHOST 'cd TheGarden/build && rm -f TheGarden.cpgz && ditto -c -z --keepParent "The Garden.app" TheGarden.cpgz'
-    scp -q $BUILDHOST:TheGarden/build/TheGarden.cpgz build/TheGarden.cpgz
+# CPGZ=build/cross.cpgz tests an app built here instead (scripts/cross-build.sh).
+if [ -n "$CPGZ" ] || [ "$host" != "$BUILDHOST" ]; then
+    if [ -n "$CPGZ" ]; then
+        cp "$CPGZ" build/TheGarden.cpgz
+    else
+        # cpio, not zip: Leopard's ditto writes broken zips around the
+        # frameworks' symlinks, and Tiger's tools can't read its zips anyway.
+        ssh $BUILDHOST 'cd TheGarden/build && rm -f TheGarden.cpgz && ditto -c -z --keepParent "The Garden.app" TheGarden.cpgz'
+        scp -q $BUILDHOST:TheGarden/build/TheGarden.cpgz build/TheGarden.cpgz
+    fi
     $SSH "$host" 'cat > /tmp/TheGarden.cpgz' < build/TheGarden.cpgz
     $SSH "$host" 'rm -rf "/tmp/gd/The Garden.app"; mkdir -p /tmp/gd && ditto -x -z /tmp/TheGarden.cpgz /tmp/gd'
     APP="/tmp/gd/The Garden.app"
