@@ -24,6 +24,43 @@ Every report carries an id that survives retries, and the id is remembered in
 KV once an issue exists for it. An app that retries a report we already took
 gets the same issue number back rather than filing a second one.
 
+## What a report contains
+
+Everything below is shown in the app's own window before anything is sent, and
+nothing is sent unless Send is pressed. There is no background collection.
+
+| Field | What it is | Example |
+|---|---|---|
+| `id` | names this report, so a retry is not a second issue | `20260920T200144-3f9c1a72` |
+| `app` | which app in the family | `the-garden` |
+| `version`, `build` | the app's version and build number | `0.2.4`, `6` |
+| `topic` | what they chose from the pop-up | `Something is broken` |
+| `summary` | the first line, for the issue title | first 90 characters |
+| `message` | what they typed | free text |
+| `email` | **only if they typed one**; empty otherwise | `` |
+| `page` | the page they were on | `item /games/dark-castle` |
+| `system.os` | the system version | `10.4` |
+| `system.arch` | PowerPC or Intel | `PowerPC` |
+| `system.model` | `hw.model` | `PowerBook5,4` |
+| `system.memoryMB` | memory | `1536` |
+| `system.screen` | the main screen | `1024x768` |
+| `system.classic` | whether Classic is usable | `false` |
+| `system.accelerator` | whether PowerEmu's accelerator is in use | `not in use` |
+| `screenshot` | **only if the box is ticked**: the Garden's own window, PNG, longest edge 800 | |
+
+The screenshot is of the Garden's window only, never the whole screen - but
+that window can be showing the Library, which is a list of what they have
+installed. The box is there to be switched off.
+
+The server adds two things of its own to the copy it keeps in R2:
+`received` (a timestamp) and `ip` (the address the report came from, used for
+the rate limit). **The address is not put in the issue** - only in the stored
+record.
+
+What is never collected: the catalogue they have browsed, anything about other
+software on the Mac, a serial number, an account name, or any identifier that
+persists between reports.
+
 ## Setting it up
 
 1. **A private repository for the reports**, e.g. `Spartan0285/feedback`.
@@ -34,7 +71,19 @@ gets the same issue number back rather than filing a second one.
    Give it *only* that repository, and only **Issues: read and write**. Nothing
    else, and no other repository.
 
-3. **In the Pages project** (Settings → Functions / Environment variables):
+3. **A Pages project**, with an R2 bucket and a KV namespace:
+   - Workers & Pages → Create → Pages → connect the repository the site is
+     built from. No build command; the output directory is wherever
+     `functions/` sits (the repository root, for a plain static site).
+   - R2 → Create bucket, e.g. `feedback`.
+   - Workers & Pages → KV → Create namespace, e.g. `feedback-seen`.
+
+   Both are optional to begin with: with no `FEEDBACK` binding the issue is
+   still opened, just with no screenshot; with no `SEEN` binding there is no
+   rate limit and no protection against a retry becoming a second issue. Start
+   without them if you want to see it work, then add them.
+
+4. **In the Pages project** (Settings → Functions / Environment variables):
 
    | Name | Kind | Value |
    |---|---|---|
@@ -44,7 +93,12 @@ gets the same issue number back rather than filing a second one.
    | `GITHUB_REPO` | variable | `Spartan0285/feedback` |
    | `CLIENT_TOKEN` | secret, optional | must equal the app's `X-Feedback-Client` |
 
-4. **Check it**, once deployed:
+5. **The domain.** Pages project → Custom domains → Set up a custom domain →
+   `www.cytrusretro.com`. The zone is already in the same Cloudflare account,
+   so the DNS record is made for you. It has to be **www**, because that is
+   what the app asks for - or change `GDFeedbackURL` in the app to match.
+
+6. **Check it**, once deployed:
 
        curl -i https://www.cytrusretro.com/api/feedback \
          -H 'content-type: application/json' \
