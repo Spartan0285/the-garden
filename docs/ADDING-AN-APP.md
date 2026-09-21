@@ -1,11 +1,20 @@
-# The feedback system, and how to put it in another app
+# Adding an app to the family
 
-One endpoint serves every app in this family. A report says which app it came
-from, and the server labels the issue accordingly, so Captain Polliwog,
-PowerEmu and anything after them share a single private repository and a
-single Worker. Adding an app is a few lines, not a new deployment.
+Three things every Cytrus Software app for Mac OS X 10.4 and 10.5 should have,
+and how to put them in the next one:
 
-This is written for whoever is building the next one.
+1. **Feedback** that reaches one private issue tracker, shared by every app
+   (sections 1-6).
+2. **An About window** that says what the app is, what it is not, and that it
+   is an alpha (section 7).
+3. **Links that open in a browser able to load them** - which on these systems
+   is not the one the Mac came with (section 8).
+
+The endpoint is already deployed and already serves every app; adding one is a
+few lines, not a new deployment. The About window and the link policy are
+about seventy lines each and can be copied from The Garden.
+
+Written for whoever is building the next one.
 
 ---
 
@@ -153,7 +162,7 @@ know first when the report arrives.
 
 ---
 
-## The report id has to be unguessable
+## 5. The report id has to be unguessable
 
 The screenshot attached to a report is served from `/api/shot/<app>/<id>.png`
 with no authentication. It has to be: the GitHub issue embeds that address, and
@@ -174,7 +183,7 @@ entire secret, and a timestamp is a day's worth of guesses. The Garden shipped
 this bug and it was fixed on 2026-09-20; don't reintroduce it in the next app.
 `arc4random` seeds itself from the kernel and needs no setup.
 
-## 5. Client checklist
+## 6. Client checklist
 
 - [ ] Report `id` generated once, kept across retries, and **from a seeded CSPRNG**
 - [ ] Outbox on disk; send what is in it at launch
@@ -186,7 +195,91 @@ this bug and it was fixed on 2026-09-20; don't reintroduce it in the next app.
 
 ---
 
-## 6. Linking out to the web
+## 7. The About window
+
+`orderFrontStandardAboutPanel:` cannot carry any of what follows, so each app
+draws its own. The Garden's is `src/GDAbout.m`; about a hundred and fifty
+lines, and most of it is the text.
+
+### What goes in it, in this order
+
+1. **The app's icon, its name, `Version X (build N)`, and a stage badge.**
+   The build number matters: it is what an updater compares and what a
+   feedback report carries, so it is what you will ask someone for.
+2. **A rule**, then **the alpha sentence in bold**: *"This is an alpha build.
+   Expect rough edges, and please say when you find one."* An invitation, not
+   a disclaimer - it is the sentence that turns an annoyed person into a
+   reporter.
+3. **What the app is not.** Any app that reads somebody else's archive has to
+   say so plainly and early. The Garden's first line is that it is not
+   affiliated with the Macintosh Garden. Do not bury this at the bottom.
+4. **Who made it** - one paragraph, first person, and keep it first person all
+   the way through. Mixing *"I hope you like it"* with *"his other projects"*
+   reads like a press release someone forgot to finish.
+5. **The Cytrus Software lockup.**
+6. **The two buttons.**
+
+### Marking the stage in one place
+
+    Makefile:  STAGE = Alpha
+      -> Info.plist: GDBuildStage = @STAGE@
+        -> the About badge
+        -> the window title:  "Featured - The Garden (Alpha)"
+        -> the version in every feedback report
+
+Emptying `STAGE` removes it from all of them, with no other edit. Whatever you
+do, do not write "Alpha" into `CFBundleShortVersionString`: an updater compares
+build numbers, but the version string ends up in file names, tags and signed
+statements, and a space in it will find every one of them.
+
+### The two buttons, and their colours
+
+Lime `#A8D81A` for cytrusretro.com, purple `#6F2E7E` for amcreativecoach.com -
+the lime is from the site, the purple is sampled from the app's own icon.
+
+**Pick the text colour from the fill, not by habit.** Lime takes near-black
+(`#1A2A00`); purple takes white. White on lime is unreadable on a CRT, and
+these are CRTs.
+
+NSButton will not fill itself with an arbitrary colour on 10.4, so the button
+draws itself:
+
+```objc
+@interface GDColorButton : NSButton { NSColor *fill, *ink; }
+@end
+
+- (void)drawRect:(NSRect)dirty {
+    NSRect r = NSInsetRect([self bounds], 0.5, 0.5);
+    NSColor *c = [[self cell] isHighlighted]        // NSButton has no -isHighlighted
+        ? [fill blendedColorWithFraction:0.25 ofColor:[NSColor blackColor]] : fill;
+    [c set];  [GDRoundRect(r, 6) fill];
+    // ... then the title, centred, in `ink`
+}
+```
+
+Both buttons go through the link policy in section 8. Neither calls
+`openURL:` directly.
+
+### Brand artwork, on a Mac from 2005
+
+`cytruslogo.svg` sets its wordmark in **Ariana Pro**. No Mac here has it, so
+rasterising the whole logo produces the mark beside a row of tiny fallback
+glyphs - and nothing warns you, it just looks wrong.
+
+Ship **the mark only**, and draw the name in a face these systems do have
+(bold system font, "CYTRUS" over "SOFTWARE"). Crop the mark by the SVG's own
+geometry - the lemon is `x 0..162, y 8..200` of the `771.72 x 229.05` viewBox -
+rather than by scanning the image for ink, which happily includes half the
+wordmark. `Resources/cytrusmark.png` in The Garden is that crop and can be
+reused as it is.
+
+One more: a view that draws top-down (`isFlipped` returning `YES`) positions
+its **subviews** top-down as well. A button placed at `y = 24` lands at the
+top of the window, over the icon. Measure it from the bottom yourself.
+
+---
+
+## 8. Linking out to the web
 
 **Every app in this family except Captain Polliwog should do this.**
 

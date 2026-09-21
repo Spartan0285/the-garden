@@ -1,5 +1,8 @@
 # The feedback endpoint
 
+*Putting this, the About window and the link policy into another app:
+[docs/ADDING-AN-APP.md](../../docs/ADDING-AN-APP.md).*
+
 One endpoint, on your own domain, for every app in this family. The site stays
 static: Cloudflare Pages runs anything under `functions/` as a real endpoint on
 the same hostname, on the free plan.
