@@ -4,6 +4,7 @@
 #import "GDAccelerator.h"
 #import "GDStyle.h"
 #include <sys/sysctl.h>
+#include <stdlib.h>          /* arc4random */
 
 /* One endpoint for every app in this family; the "app" field says which.
  * Changeable without a new build: defaults write org.macintoshgarden.store
@@ -380,12 +381,20 @@ static GDFeedback *shared;              /* the window being filled in, for the t
         summary = [summary substringToIndex:90];
 
     /* A name this report keeps across retries, so a report that was stored but
-     * whose issue could not be opened does not become two. */
+     * whose issue could not be opened does not become two.
+     *
+     * The random half must be unguessable, not merely varied: the screenshot
+     * that goes with a report is served from /api/shot/<app>/<id>.png with no
+     * authentication - it has to be, so the issue can show it - so the id is
+     * the only thing keeping one person's screenshot from anybody else.
+     * random() without srandom() would return the same sequence on every Mac
+     * and every launch (6b8b4567 first, every time), which left the timestamp
+     * as the whole secret.  arc4random seeds itself from the kernel. */
     if (reportID == nil)
-        reportID = [[NSString alloc] initWithFormat:@"%@-%08x",
+        reportID = [[NSString alloc] initWithFormat:@"%@-%08x%08x",
                        [[NSDate date] descriptionWithCalendarFormat:@"%Y%m%d%H%M%S"
                                                            timeZone:nil locale:nil],
-                       (unsigned)(random() & 0xFFFFFFFF)];
+                       (unsigned)arc4random(), (unsigned)arc4random()];
     return [NSString stringWithFormat:
         @"{\"id\":%@,\"app\":%@,\"version\":%@,\"build\":%@,\"topic\":%@,\"summary\":%@,"
          "\"message\":%@,\"email\":%@,\"page\":%@,\"system\":%@,\"screenshot\":%@}",

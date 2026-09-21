@@ -49,6 +49,33 @@ function slug(text) {
     .slice(0, 40);
 }
 
+// A value going into the metadata table. Newlines and pipes would let a
+// reporter forge extra rows, so they are flattened rather than trusted.
+function cell(value) {
+  const text = String(value === undefined || value === null || value === '' ? '-' : value)
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\|/g, '\\|')
+    .slice(0, 200);
+  return text.trim() || '-';
+}
+
+// Only actual PNGs go in the bucket: whatever is stored here is served back
+// from our own domain, so it should be the kind of file we say it is.
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+function looksLikePNG(bytes) {
+  return bytes.length > PNG_MAGIC.length && PNG_MAGIC.every((b, i) => bytes[i] === b);
+}
+
+// The full address is used for rate limiting, which expires in hours. What is
+// kept beside the report is coarse: enough to recognise a pattern of abuse,
+// not a record of where each person was sitting.
+function coarseIP(ip) {
+  if (!ip || ip === 'unknown') return 'unknown';
+  if (ip.includes(':')) return ip.split(':').slice(0, 3).join(':') + '::/48';
+  const p = ip.split('.');
+  return p.length === 4 ? `${p[0]}.${p[1]}.${p[2]}.0/24` : 'unknown';
+}
+
 function base64ToBytes(b64) {
   const clean = String(b64).replace(/[^A-Za-z0-9+/=]/g, '');
   const binary = atob(clean);
@@ -86,12 +113,18 @@ export async function onRequestPost({ request, env }) {
   if (env.CLIENT_TOKEN && request.headers.get('x-feedback-client') !== env.CLIENT_TOKEN) {
     return json(403, { error: 'unknown client' });
   }
-  const length = Number(request.headers.get('content-length') || 0);
-  if (length > MAX_BODY) return json(413, { error: 'too large' });
+  // content-length is whatever the caller says it is, and chunked requests
+  // have none at all, so it is only a cheap early out. The size that counts is
+  // the number of bytes that actually arrived.
+  const claimed = Number(request.headers.get('content-length') || 0);
+  if (claimed > MAX_BODY) return json(413, { error: 'too large' });
+
+  const buf = await request.arrayBuffer();
+  if (buf.byteLength > MAX_BODY) return json(413, { error: 'too large' });
 
   let body;
   try {
-    body = await request.json();
+    body = JSON.parse(new TextDecoder().decode(buf));
   } catch (e) {
     return json(400, { error: 'not JSON' });
   }
@@ -105,24 +138,35 @@ export async function onRequestPost({ request, env }) {
   const message = String(body.message || '').slice(0, MAX_MESSAGE);
   if (message.trim().length < 5) return json(400, { error: 'empty report' });
 
+  // --- rate limit, per address --------------------------------------------
+  // This runs before the dedupe lookup below, so guessing at ids is bounded by
+  // the same budget as sending reports. The count is only spent on reports we
+  // actually take, so an app retrying one report is not punished for it.
+  //
+  // Read-then-write is not atomic in KV, so a burst of simultaneous requests
+  // can slip a little over the limit. Holding an exact count needs a Durable
+  // Object; this is here to stop a flood, not to be a precise meter.
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  const rateKey = `rate:${ip}:${new Date().toISOString().slice(0, 13)}`;
+  let used = 0;
+  if (env.SEEN) {
+    used = Number((await env.SEEN.get(rateKey)) || 0);
+    if (used >= RATE_PER_HOUR) return json(429, { error: 'too many reports' });
+  }
+
   // --- already seen: the app is retrying something we took ----------------
   const seenKey = `issue:${app}:${id}`;
   const seen = env.SEEN ? await env.SEEN.get(seenKey) : null;
   if (seen) return json(200, { ok: true, issue: Number(seen), duplicate: true });
 
-  // --- rate limit, per address --------------------------------------------
-  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  // A new report, so it counts against the budget.
   if (env.SEEN) {
-    const hour = new Date().toISOString().slice(0, 13);
-    const key = `rate:${ip}:${hour}`;
-    const used = Number((await env.SEEN.get(key)) || 0);
-    if (used >= RATE_PER_HOUR) return json(429, { error: 'too many reports' });
-    await env.SEEN.put(key, String(used + 1), { expirationTtl: 7200 });
+    await env.SEEN.put(rateKey, String(used + 1), { expirationTtl: 7200 });
   }
 
   // --- keep it, before anything that can fail -----------------------------
   const received = new Date().toISOString();
-  const record = { ...body, screenshot: undefined, received, ip };
+  const record = { ...body, screenshot: undefined, received, ip: coarseIP(ip) };
   if (env.FEEDBACK) {
     await env.FEEDBACK.put(`reports/${app}/${id}.json`, JSON.stringify(record, null, 2), {
       httpMetadata: { contentType: 'application/json' },
@@ -133,7 +177,7 @@ export async function onRequestPost({ request, env }) {
   if (body.screenshot && env.FEEDBACK) {
     try {
       const bytes = base64ToBytes(body.screenshot);
-      if (bytes.length > 0 && bytes.length < MAX_BODY) {
+      if (bytes.length < MAX_BODY && looksLikePNG(bytes)) {
         shotPath = `screenshots/${app}/${id}.png`;
         await env.FEEDBACK.put(shotPath, bytes, {
           httpMetadata: { contentType: 'image/png' },
@@ -161,18 +205,30 @@ export async function onRequestPost({ request, env }) {
     '',
     `| | |`,
     `|---|---|`,
-    `| App | ${APPS[app]} ${body.version || '?'} (build ${body.build || '?'}) |`,
-    `| Topic | ${body.topic || '-'} |`,
-    `| Page | ${body.page || '-'} |`,
-    `| System | Mac OS X ${sys.os || '?'}, ${sys.arch || '?'}, ${sys.model || '?'} |`,
-    `| Memory | ${sys.memoryMB || '?'} MB |`,
-    `| Screen | ${sys.screen || '?'} |`,
+    `| App | ${APPS[app]} ${cell(body.version)} (build ${cell(body.build)}) |`,
+    `| Topic | ${cell(body.topic)} |`,
+    `| Page | ${cell(body.page)} |`,
+    `| System | Mac OS X ${cell(sys.os)}, ${cell(sys.arch)}, ${cell(sys.model)} |`,
+    `| Memory | ${cell(sys.memoryMB)} MB |`,
+    `| Screen | ${cell(sys.screen)} |`,
     `| Classic | ${sys.classic ? 'yes' : 'no'} |`,
-    `| Accelerator | ${sys.accelerator || '-'} |`,
-    `| Reply to | ${body.email ? body.email : '(not given)'} |`,
+    `| Accelerator | ${cell(sys.accelerator)} |`,
+  ];
+  // Whatever else this app chose to send. Apps differ - a browser reports
+  // things a store does not - and a field nobody renders is a field nobody
+  // will look at.
+  const KNOWN_SYS = ['os', 'arch', 'model', 'memoryMB', 'screen', 'classic', 'accelerator'];
+  for (const key of Object.keys(sys)) {
+    const value = sys[key];
+    if (KNOWN_SYS.includes(key) || value === '' || value === null || value === undefined) continue;
+    const label = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1');
+    lines.push(`| ${cell(label)} | ${typeof value === 'boolean' ? (value ? 'yes' : 'no') : cell(value)} |`);
+  }
+  lines.push(
+    `| Reply to | ${body.email ? cell(body.email) : '(not given)'} |`,
     `| Received | ${received} |`,
     `| Report | \`${id}\` |`,
-  ];
+  );
   if (shotPath) {
     lines.push('', `![screenshot](${origin}/api/shot/${app}/${id}.png)`);
   }

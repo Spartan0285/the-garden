@@ -34,7 +34,7 @@ This is written for whoever is building the next one.
 
 | Field | Required | What it is |
 |---|---|---|
-| `id` | yes | Stable for the life of the report, **including retries**. This is what stops one report becoming two issues. Generate it once, keep it in the queued file. |
+| `id` | yes | Stable for the life of the report, **including retries**. This is what stops one report becoming two issues. Generate it once, keep it in the queued file. It must also be **unguessable** &mdash; see below. |
 | `app` | yes | Must be a key in `APPS` in `functions/api/feedback.js`, or the report is refused. |
 | `version`, `build` | yes | Whatever the app calls itself. `build` is what an updater compares. |
 | `topic` | yes | The reader's choice, **as words, not a code**. It becomes a `topic:` label, slugged. |
@@ -153,9 +153,30 @@ know first when the report arrives.
 
 ---
 
+## The report id has to be unguessable
+
+The screenshot attached to a report is served from `/api/shot/<app>/<id>.png`
+with no authentication. It has to be: the GitHub issue embeds that address, and
+the bucket itself stays private. So the id is the only thing standing between
+one person's screenshot and anybody who asks for it.
+
+Use at least 64 bits from a seeded generator:
+
+```c
+[NSString stringWithFormat:@"%@-%08x%08x", timestamp,
+    (unsigned)arc4random(), (unsigned)arc4random()]
+```
+
+**Not `random()` or `rand()`.** Neither seeds itself. Without an `srandom()`
+call they return the same sequence on every machine and every launch &mdash;
+the first value is always `6b8b4567` &mdash; which leaves the timestamp as the
+entire secret, and a timestamp is a day's worth of guesses. The Garden shipped
+this bug and it was fixed on 2026-09-20; don't reintroduce it in the next app.
+`arc4random` seeds itself from the kernel and needs no setup.
+
 ## 5. Client checklist
 
-- [ ] Report `id` generated once, and kept across retries
+- [ ] Report `id` generated once, kept across retries, and **from a seeded CSPRNG**
 - [ ] Outbox on disk; send what is in it at launch
 - [ ] Every field shown in the window before sending
 - [ ] Screenshot optional, previewed, and of the app's window only
