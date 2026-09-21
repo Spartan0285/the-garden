@@ -146,8 +146,10 @@ export async function onRequestPost({ request, env }) {
 
   // --- and open the issue --------------------------------------------------
   if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) {
-    // Stored, but nobody has been told. Tell the app so it tries again later.
-    return json(503, { error: 'no issue tracker configured', stored: true });
+    // Tell the app to try again later.  Whether anything was actually kept
+    // depends on R2 being bound, and saying otherwise would be a lie the
+    // client cannot check.
+    return json(503, { error: 'no issue tracker configured', stored: Boolean(env.FEEDBACK) });
   }
 
   const sys = body.system || {};
@@ -193,8 +195,8 @@ export async function onRequestPost({ request, env }) {
 
   if (!res.ok) {
     console.log('issue', res.status, await res.text());
-    // It is safely in R2; the app will send it again and the id will match.
-    return json(502, { error: 'could not open an issue', stored: true });
+    // The app will send it again and the id will match.
+    return json(502, { error: 'could not open an issue', stored: Boolean(env.FEEDBACK) });
   }
 
   const issue = await res.json();
