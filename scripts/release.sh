@@ -23,6 +23,9 @@ key=${GARDEN_RELEASE_KEY:-$HOME/.config/thegarden/release-key.pem}
 repo=$(git config --get remote.origin.url | sed -e 's#.*github.com[:/]##' -e 's#\.git$##')
 version=$(sed -n 's/^VERSION  *= *//p' Makefile)
 build=$(sed -n 's/^BUILD_NUMBER  *= *//p' Makefile)
+stage=$(sed -n 's/^STAGE  *= *//p' Makefile)
+# What people read: "0.3.4 Alpha".  The tag and the zip keep the bare number.
+label="$version${stage:+ $stage}"
 tag="v$version"
 zip="TheGarden-$version.zip"
 
@@ -33,7 +36,7 @@ if git rev-parse "$tag" >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "==> building $version (build $build) on $host"
+echo "==> building $label (build $build) on $host"
 scripts/remote-build.sh "$host" app >/dev/null
 
 # Zipped on the Mac that built it, with -y so the symbolic links inside the
@@ -53,7 +56,7 @@ url="https://github.com/$repo/releases/download/$tag/$zip"
 # What the app verifies: the version bound to this file and to where it comes
 # from, so a signature cannot be moved to another download.
 statement="TheGarden-update-1
-version=$version
+version=$label
 build=$build
 sha256=$sha
 size=$size
@@ -65,14 +68,14 @@ signature=$(openssl pkeyutl -sign -inkey "$key" -rawin -in "$statement_file" | b
 rm -f "$statement_file"
 
 echo "==> writing updates.plist"
-notes=${GARDEN_RELEASE_NOTES:-"The Garden $version."}
+notes=${GARDEN_RELEASE_NOTES:-"The Garden $label."}
 cat > updates.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>$version</string>
+	<string>$label</string>
 	<key>build</key>
 	<string>$build</string>
 	<key>url</key>
@@ -93,11 +96,11 @@ PLIST
 
 echo "==> tagging and uploading"
 git add updates.plist
-git commit -q -m "The Garden $version" || true
+git commit -q -m "The Garden $label" || true
 git tag "$tag"
 git push -q origin main "$tag"
-gh release create "$tag" "build/$zip" --repo "$repo" --title "The Garden $version" --notes "$notes"
+gh release create "$tag" "build/$zip" --repo "$repo" --title "The Garden $version${stage:+ ($stage)}" --notes "$notes"
 
-echo "==> $version published"
+echo "==> $label published"
 echo "    $url"
 echo "    sha256 $sha"
