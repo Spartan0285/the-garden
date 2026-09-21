@@ -153,7 +153,7 @@
             float bx = NSMaxX(r) - BTN_W - 6;
             if ([j isActive]) {
                 NSProgressIndicator *bar = [[[NSProgressIndicator alloc] initWithFrame:
-                                                NSMakeRect(r.origin.x + 84, y + 42, w - 2 * MARGIN - 200, 12)] autorelease];
+                                                NSMakeRect(r.origin.x + 84, y + 40, w - 2 * MARGIN - 200, 12)] autorelease];
                 [bar setStyle:NSProgressIndicatorBarStyle];
                 [bar setControlSize:NSSmallControlSize];
                 if ([j progress] < 0) {
@@ -340,11 +340,15 @@ static NSRect titleRect(NSRect row)
             [linkText() drawInRect:linkRect(r) withAttributes:linkAttrs()];
             GDDrawText([[j file] name], NSMakeRect(r.origin.x + 84, r.origin.y + 22, r.size.width - 200, 14),
                        [NSFont systemFontOfSize:10], GDSubtleTextColor(), YES);
-            if (![j isActive] || [j state] != GDJobDownloading)
+            if (![j isActive])
+                /* No bar in the way: two lines, for a failure worth reading. */
                 GDDrawText([j status], NSMakeRect(r.origin.x + 84, r.origin.y + 38, r.size.width - 200, 26),
                            [NSFont systemFontOfSize:10], c, NO);
             else
-                GDDrawText([j status], NSMakeRect(r.origin.x + 84, r.origin.y + 54, r.size.width - 200, 12),
+                /* Under the bar.  This used to test for GDJobDownloading, so
+                 * installing, verifying and unpacking - every active state that
+                 * is not a download - drew the status straight through it. */
+                GDDrawText([j status], NSMakeRect(r.origin.x + 84, r.origin.y + 52, r.size.width - 200, 12),
                            [NSFont systemFontOfSize:9], c, YES);
         } else {
             NSDictionary *e = [row objectAtIndex:1];

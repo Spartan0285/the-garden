@@ -6,6 +6,7 @@
 #import "GDExtract.h"
 #import <AppKit/AppKit.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/attr.h>
 #include <math.h>
 
@@ -92,6 +93,30 @@ static BOOL isInvisible(NSString *p)
 }
 
 /* Visible entries of a folder or volume. */
+/* A symbolic link pointing out of the folder we are installing from.
+ *
+ * Nearly every Mac disk image carries "Applications -> /Applications", the
+ * alias you are meant to drag the program onto.  Treating it as content is
+ * catastrophic: -fileExistsAtPath:isDirectory: follows the link and says it
+ * is a directory, so the installer copied the whole of /Applications into a
+ * new folder inside /Applications, recursively, until the disk filled.  Found
+ * on Marathon: Aleph One, 8.9 GB in before it was stopped.
+ *
+ * Links that stay inside the payload are kept; they belong to it. */
+static BOOL linksOutside(NSString *dir, NSString *name)
+{
+    NSString *p = [dir stringByAppendingPathComponent:name];
+    struct stat st;
+    NSString *target, *base;
+
+    if (lstat([p fileSystemRepresentation], &st) != 0 || !S_ISLNK(st.st_mode))
+        return NO;
+    target = [p stringByResolvingSymlinksInPath];
+    base = [dir stringByResolvingSymlinksInPath];
+    return !([target isEqualToString:base] ||
+             [target hasPrefix:[base stringByAppendingString:@"/"]]);
+}
+
 static NSArray *visibleContents(NSString *dir)
 {
     NSArray *all = [[NSFileManager defaultManager] directoryContentsAtPath:dir];
@@ -107,7 +132,8 @@ static NSArray *visibleContents(NSString *dir)
             [n isEqualToString:@"Move&Rename"] || [n isEqualToString:@"Temporary Items"] ||
             [n isEqualToString:@"Cleanup At Startup"] || [n isEqualToString:@"Shutdown Check"] ||
             [n isEqualToString:@"OpenFolderListDF\r"] || [n isEqualToString:@"Icon\r"] ||
-            isInvisible([dir stringByAppendingPathComponent:n]))
+            isInvisible([dir stringByAppendingPathComponent:n]) ||
+            linksOutside(dir, n))
             continue;
         [out addObject:n];
     }
