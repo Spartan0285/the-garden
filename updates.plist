@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3 Alpha</string>
+	<string>0.3.1 Alpha</string>
 	<key>build</key>
-	<string>7</string>
+	<string>8</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3/TheGarden-0.3.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.1/TheGarden-0.3.1.zip</string>
 	<key>sha256</key>
-	<string>0b1ee49f6f6ef00150cf3e243b57f00e16e0b4497cb32967c3173b3a160090ed</string>
+	<string>85458a46d04196f196b38263389454a999c477c9ac7cd176b8f4a2cb8532c8c0</string>
 	<key>size</key>
-	<string>6876219</string>
+	<string>6877759</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>This is an alpha build. New: an About window, Send Feedback, Get is a menu of every download, and a title stays in Updates until its update has finished installing.</string>
+	<string>Alpha. Links now open in a browser that can actually load them, the tabs are centred, and a report says which browser you use.</string>
 	<key>signature</key>
-	<string>7gpTSCCf57KeNbg4vNwWt4OMWVTDZa4HwGibtNxn5m0dcSrLAFnE7x+1nE71cmIb6eMzfWiFksQIs76ZniNzCg==</string>
+	<string>6LIbtfYfFfmDYjx81EePnx1/85iLJ9xoqZPZSUXoRzJGDtswnDltkRh5kytiP4lTxraQCTjnRM8H1DeuQcqUCQ==</string>
 </dict>
 </plist>
