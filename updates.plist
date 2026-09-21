@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3.2 Alpha</string>
+	<string>0.3.3 Alpha</string>
 	<key>build</key>
-	<string>9</string>
+	<string>10</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.2/TheGarden-0.3.2.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.3/TheGarden-0.3.3.zip</string>
 	<key>sha256</key>
-	<string>f475a93e508fdbdbb2798ec88b9fc5635d1cd9a85b364edf824cdc4a8efee459</string>
+	<string>c2e54b529a04463a40d196005435aff761a6e1c9c96e32f98ae6cedb9af963c8</string>
 	<key>size</key>
-	<string>6823002</string>
+	<string>6822898</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Alpha. The About window carries the real Cytrus Software logo.</string>
+	<string>Important: installing from a disk image no longer follows its Applications alias. It could copy your whole Applications folder into itself until the disk filled. Also fixes the Library progress bar drawing over its own status text.</string>
 	<key>signature</key>
-	<string>svStIQj6nr4Ziy8X1bOLMFhj6dgwQ5/sM50+vDYg3Kg51UUspJCBzlQcS7qWQn8HCS4BHSUnQszH1fAKoFJIDQ==</string>
+	<string>TUROvc22vrPpwg+gVv9V3pltVasio45Ika8RPelaO8NN6owKKQnXECNEJ371jPVNLl23vNFMEy8gSuWi6k49Ag==</string>
 </dict>
 </plist>
