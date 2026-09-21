@@ -5,6 +5,7 @@
 #import "GDGarden.h"
 #import "GDWebWindow.h"
 #import "GDSheepShaver.h"
+#import "GDAbout.h"
 #import "GDHTTP.h"
 #import "GDCatalog.h"
 #import "GDInstaller.h"
@@ -47,7 +48,8 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
                                                    NSMiniaturizableWindowMask | NSResizableWindowMask |
                                                    NSUnifiedTitleAndToolbarWindowMask
                                            backing:NSBackingStoreBuffered defer:NO];
-    [window setTitle:@"The Garden"];
+    [window setTitle:[GDAbout stage] ? [NSString stringWithFormat:@"The Garden (%@)",
+                          [GDAbout stage]] : @"The Garden"];
     [window setMinSize:NSMakeSize(720, 480)];
     [window setFrameAutosaveName:@"GDStoreWindow"];
     [window setReleasedWhenClosed:NO];
@@ -185,7 +187,11 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
             [sectionControl setSelected:NO forSegment:i];
         [[sectionControl cell] setTrackingMode:NSSegmentSwitchTrackingSelectOne];
     }
-    [window setTitle:[page objectForKey:@"title"] ?: @"The Garden"];
+    {
+        NSString *t = [page objectForKey:@"title"] ?: @"The Garden";
+        [window setTitle:[GDAbout stage] ?
+            [NSString stringWithFormat:@"%@ \xE2\x80\x94 The Garden (%@)", t, [GDAbout stage]] : t];
+    }
 }
 
 - (void) cancelRequests

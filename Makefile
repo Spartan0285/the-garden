@@ -4,10 +4,13 @@
 
 APP_NAME = The Garden
 EXEC     = TheGarden
-VERSION  = 0.2.4
+VERSION  = 0.3
+# Alpha, Beta, or empty once it is neither.  Shown in the About window, the
+# window title and every feedback report.
+STAGE    = Alpha
 # CFBundleVersion: a whole number, up by one each release.  The updater
 # compares these, never the version people read.
-BUILD_NUMBER = 6
+BUILD_NUMBER = 7
 
 SDK       ?= /Developer/SDKs/MacOSX10.4u.sdk
 # Static OpenSSL 3 + libcurl 8 per architecture, as built for Captain Polliwog.
@@ -92,11 +95,13 @@ app: $(BUILD)/$(EXEC) Resources/Info.plist Resources/cacert.pem
 	@rm -rf "$(APP)"
 	@mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	@cp $(BUILD)/$(EXEC) "$(APP)/Contents/MacOS/$(EXEC)"
-	@sed -e 's/@VERSION@/$(VERSION)/g' -e 's/@BUILD@/$(BUILD_NUMBER)/g' Resources/Info.plist > "$(APP)/Contents/Info.plist"
+	@sed -e 's/@VERSION@/$(VERSION)/g' -e 's/@BUILD@/$(BUILD_NUMBER)/g' -e 's/@STAGE@/$(STAGE)/g' Resources/Info.plist > "$(APP)/Contents/Info.plist"
 	@printf 'APPLGdnX' > "$(APP)/Contents/PkgInfo"
 	@cp Resources/cacert.pem Resources/*.plist "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@rm -f "$(APP)/Contents/Resources/Info.plist"
 	@cp Resources/*.icns Resources/*.txt "$(APP)/Contents/Resources/" 2>/dev/null; true
+	@# Named, not Resources/*.png: the 1024px icon artwork stays out of the bundle.
+	@cp Resources/cytrusmark.png "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@ditto Resources/Licenses "$(APP)/Contents/Resources/Licenses"
 	@mkdir -p "$(APP)/Contents/Frameworks"
 	@ditto $(VENDOR)/XADMaster.framework "$(APP)/Contents/Frameworks/XADMaster.framework"

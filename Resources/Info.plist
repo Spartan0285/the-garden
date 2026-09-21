@@ -25,7 +25,9 @@
 	<key>CFBundleVersion</key>
 	<string>@BUILD@</string>
 	<key>CFBundleGetInfoString</key>
-	<string>The Garden @VERSION@, a store for Macintosh Garden software</string>
+	<string>The Garden @VERSION@ @STAGE@, a store for Macintosh Garden software</string>
+	<key>GDBuildStage</key>
+	<string>@STAGE@</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>10.4.0</string>
 	<key>NSHumanReadableCopyright</key>

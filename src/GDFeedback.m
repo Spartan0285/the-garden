@@ -126,6 +126,7 @@ static NSString *systemJSON(void)
 @end
 
 static NSMutableArray *liveReports;     /* retried in the background */
+static GDFeedback *shared;              /* the window being filled in, for the test hook */
 
 @implementation GDFeedback
 
@@ -144,6 +145,7 @@ static NSMutableArray *liveReports;     /* retried in the background */
 + (void) openForWindow:(NSWindow *)w page:(NSString *)pageDescription
 {
     GDFeedback *f = [[self alloc] init];    /* released when the window closes */
+    shared = f;
     f->page = [pageDescription copy];
     if (w != nil) {
         NSView *v = [[w contentView] superview];
@@ -153,6 +155,17 @@ static NSMutableArray *liveReports;     /* retried in the background */
         [f->shot addRepresentation:bm];
     }
     [f build];
+}
+
++ (void) debugSendFor:(NSWindow *)w page:(NSString *)pageDescription
+              message:(NSString *)text
+{
+    [self openForWindow:w page:pageDescription];
+    if (shared != nil) {
+        [[shared->message textStorage] replaceCharactersInRange:NSMakeRange(0, 0)
+                                                     withString:text];
+        [shared send:nil];
+    }
 }
 
 /* Anything written to the outbox when the network was not there. */

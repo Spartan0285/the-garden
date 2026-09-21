@@ -36,6 +36,11 @@
 /* Opens the window, with a picture of this window ready to attach. */
 + (void) openForWindow:(NSWindow *)w page:(NSString *)pageDescription;
 
+/* Test hook (GDDebugFeedback=send): fill the window in and press Send, so the
+ * whole path can be driven from a script. */
++ (void) debugSendFor:(NSWindow *)w page:(NSString *)pageDescription
+              message:(NSString *)text;
+
 /* At launch: anything in the outbox that could not be sent before. */
 + (void) sendQueuedReports;
 

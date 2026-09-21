@@ -12,5 +12,6 @@
 }
 - (void) buildMainMenu;
 - (IBAction) checkForUpdates:(id)sender;
+- (IBAction) showAbout:(id)sender;
 - (IBAction) sendFeedback:(id)sender;
 @end

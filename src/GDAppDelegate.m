@@ -7,6 +7,7 @@
 #import "GDSelfUpdate.h"
 #import "GDStyle.h"
 #import "GDFeedback.h"
+#import "GDAbout.h"
 
 static NSMenu *addSubmenu(NSMenu *bar, NSString *title)
 {
@@ -35,7 +36,7 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
 
     [NSApp setMainMenu:bar];
     m = addSubmenu(bar, @"The Garden");
-    addItem(m, @"About The Garden", @selector(orderFrontStandardAboutPanel:), nil);
+    addItem(m, GDU("About The Garden\xE2\x80\xA6"), @selector(showAbout:), nil);
     [m addItem:[NSMenuItem separatorItem]];
     addItem(m, GDU("Check for Updates\xE2\x80\xA6"), @selector(checkForUpdates:), nil);
     addItem(m, GDU("Send Feedback\xE2\x80\xA6"), @selector(sendFeedback:), nil);
@@ -130,6 +131,11 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     [[GDSelfUpdate sharedUpdater] checkForUpdates:sender];
 }
 
+- (IBAction) showAbout:(id)sender
+{
+    [GDAbout show];
+}
+
 - (IBAction) sendFeedback:(id)sender
 {
     [GDFeedback openForWindow:[store window] page:[store currentPageDescription]];
@@ -185,9 +191,20 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
             }
         }
     }
+    /* Optional: open the About window and snapshot that instead. */
+    if ([d boolForKey:@"GDDebugAbout"] && !debugWebOpened && debugQuiet >= 4) {
+        [self showAbout:nil];
+        debugWebOpened = YES;
+        debugQuiet = 0;
+    }
     /* Optional: open the feedback window and snapshot that instead. */
-    if ([d boolForKey:@"GDDebugFeedback"] && !debugWebOpened && debugQuiet >= 4) {
-        [self sendFeedback:nil];
+    if ([[d stringForKey:@"GDDebugFeedback"] length] && !debugWebOpened && debugQuiet >= 4) {
+        if ([[d stringForKey:@"GDDebugFeedback"] isEqualToString:@"send"])
+            [GDFeedback debugSendFor:[store window] page:[store currentPageDescription]
+                             message:@"A test report sent by the app itself, from a real "
+                                      "PowerPC Mac, while wiring up the endpoint. Safe to close."];
+        else
+            [self sendFeedback:nil];
         debugWebOpened = YES;
         debugQuiet = 0;
     }
