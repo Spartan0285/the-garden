@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3.1 Alpha</string>
+	<string>0.3.2 Alpha</string>
 	<key>build</key>
-	<string>8</string>
+	<string>9</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.1/TheGarden-0.3.1.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.2/TheGarden-0.3.2.zip</string>
 	<key>sha256</key>
-	<string>85458a46d04196f196b38263389454a999c477c9ac7cd176b8f4a2cb8532c8c0</string>
+	<string>f475a93e508fdbdbb2798ec88b9fc5635d1cd9a85b364edf824cdc4a8efee459</string>
 	<key>size</key>
-	<string>6877759</string>
+	<string>6823002</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Alpha. Links now open in a browser that can actually load them, the tabs are centred, and a report says which browser you use.</string>
+	<string>Alpha. The About window carries the real Cytrus Software logo.</string>
 	<key>signature</key>
-	<string>6LIbtfYfFfmDYjx81EePnx1/85iLJ9xoqZPZSUXoRzJGDtswnDltkRh5kytiP4lTxraQCTjnRM8H1DeuQcqUCQ==</string>
+	<string>svStIQj6nr4Ziy8X1bOLMFhj6dgwQ5/sM50+vDYg3Kg51UUspJCBzlQcS7qWQn8HCS4BHSUnQszH1fAKoFJIDQ==</string>
 </dict>
 </plist>
