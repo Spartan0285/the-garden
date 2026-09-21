@@ -1,7 +1,7 @@
 #!/bin/sh
 # Publish a release of The Garden, and the appcast the app checks.
 #
-#   scripts/release.sh [build-host]        (default: g4)
+#   scripts/release.sh [build-host]        (default: ibook; pbg4 also builds Universal)
 #
 # Builds the Universal app on a PowerPC Mac, zips it, signs the release with
 # the Ed25519 key in ~/.config/thegarden/release-key.pem, writes updates.plist
@@ -28,7 +28,7 @@ if [ "$(git branch --show-current)" != "main" ]; then
 fi
 cd "$(dirname "$0")/.."
 
-host=${1:-g4}
+host=${1:-ibook}
 key=${GARDEN_RELEASE_KEY:-$HOME/.config/thegarden/release-key.pem}
 repo=$(git config --get remote.origin.url | sed -e 's#.*github.com[:/]##' -e 's#\.git$##')
 version=$(sed -n 's/^VERSION  *= *//p' Makefile)

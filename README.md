@@ -33,7 +33,7 @@ Builds on a PowerPC Mac with Xcode 2.5 (Tiger) or 3.1 (Leopard) and the 10.4u
 SDK, against static libcurl/OpenSSL/zlib in `~/polliwog-deps/{ppc,i386}` (from
 Captain Polliwog's `scripts/build-deps.sh`).
 
-    scripts/remote-build.sh g4 app                  # sync + build on host g4
+    scripts/remote-build.sh ibook app               # sync + build on the iBook G4
     scripts/remote-run.sh g3 /apps/the-unarchiver   # deploy, open a page, snapshot
 
 `make ARCHS=ppc` builds PowerPC only. `tools/gdtool` exercises the site client

@@ -4,7 +4,7 @@
 #   Usage: scripts/remote-run.sh host [page] [extra defaults...]
 #   page: featured (default) | apps | games | categories | library |
 #         /apps/slug | search:words
-#   host: g3, g4, pbg4 (192.168.68.151), tiger (the QEMU guest)
+#   host: g3 (PowerBook G3), ibook (iBook G4), pbg4 (PowerBook G4, .151), tiger (the QEMU guest)
 set -e
 cd "$(dirname "$0")/.."
 host=${1:?usage: remote-run.sh host [page]}
@@ -21,7 +21,7 @@ tiger) # the QEMU guest: key and legacy algorithms as in the QEMU project's gssh
        host=adam@127.0.0.1 ;;
 esac
 mkdir -p build/screens
-BUILDHOST=${BUILDHOST:-g4}     # where scripts/remote-build.sh ran
+BUILDHOST=${BUILDHOST:-ibook}     # where scripts/remote-build.sh ran
 if [ "$host" != "$BUILDHOST" ]; then
     # cpio, not zip: Leopard's ditto writes broken zips around the
     # frameworks' symlinks, and Tiger's tools can't read its zips anyway.
