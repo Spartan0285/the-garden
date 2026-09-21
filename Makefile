@@ -4,13 +4,13 @@
 
 APP_NAME = The Garden
 EXEC     = TheGarden
-VERSION  = 0.3.1
+VERSION  = 0.3.2
 # Alpha, Beta, or empty once it is neither.  Shown in the About window, the
 # window title and every feedback report.
 STAGE    = Alpha
 # CFBundleVersion: a whole number, up by one each release.  The updater
 # compares these, never the version people read.
-BUILD_NUMBER = 8
+BUILD_NUMBER = 9
 
 SDK       ?= /Developer/SDKs/MacOSX10.4u.sdk
 # Static OpenSSL 3 + libcurl 8 per architecture, as built for Captain Polliwog.
@@ -101,7 +101,7 @@ app: $(BUILD)/$(EXEC) Resources/Info.plist Resources/cacert.pem
 	@rm -f "$(APP)/Contents/Resources/Info.plist"
 	@cp Resources/*.icns Resources/*.txt "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@# Named, not Resources/*.png: the 1024px icon artwork stays out of the bundle.
-	@cp Resources/cytrusmark.png "$(APP)/Contents/Resources/" 2>/dev/null; true
+	@cp Resources/cytruslogo.png "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@ditto Resources/Licenses "$(APP)/Contents/Resources/Licenses"
 	@mkdir -p "$(APP)/Contents/Frameworks"
 	@ditto $(VENDOR)/XADMaster.framework "$(APP)/Contents/Frameworks/XADMaster.framework"

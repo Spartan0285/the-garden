@@ -262,16 +262,16 @@ Both buttons go through the link policy in section 8. Neither calls
 
 ### Brand artwork, on a Mac from 2005
 
-`cytruslogo.svg` sets its wordmark in **Ariana Pro**. No Mac here has it, so
-rasterising the whole logo produces the mark beside a row of tiny fallback
-glyphs - and nothing warns you, it just looks wrong.
+Use **`images/cytruslogo.png`** from the website repository, scaled to the size
+you actually draw it (The Garden ships it at 240x63 and draws it at 240x63; a
+bigger file only costs a G3 the downscale). `Resources/cytruslogo.png`.
 
-Ship **the mark only**, and draw the name in a face these systems do have
-(bold system font, "CYTRUS" over "SOFTWARE"). Crop the mark by the SVG's own
-geometry - the lemon is `x 0..162, y 8..200` of the `771.72 x 229.05` viewBox -
-rather than by scanning the image for ink, which happily includes half the
-wordmark. `Resources/cytrusmark.png` in The Garden is that crop and can be
-reused as it is.
+**Do not rasterise `cytruslogo.svg` yourself.** Its wordmark is set in *Ariana
+Pro*, which no Mac here has and probably no Mac you build on has either, so the
+render comes out as the lemon beside a row of tiny fallback glyphs. Nothing
+warns you; it just looks wrong, and it looks wrong in a way you will not notice
+until it is on a screen in front of someone. The PNG is the exported artwork
+with the real typeface baked in, which is why it is the one to ship.
 
 One more: a view that draws top-down (`isFlipped` returning `YES`) positions
 its **subviews** top-down as well. A button placed at `y = 24` lands at the

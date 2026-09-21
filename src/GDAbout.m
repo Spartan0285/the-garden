@@ -86,10 +86,10 @@ static NSColor *purpleColor(void)
     if ((self = [super initWithFrame:f]) == nil)
         return nil;
     appIcon = [[NSApp applicationIconImage] retain];
-    /* Only the mark: the wordmark in the SVG is set in a typeface these Macs
-     * do not have, so it is drawn here in one they do. */
+    /* The exported logo, wordmark and all: the SVG's type is set in a face
+     * these Macs do not have, so rasterising it here would lose it. */
     logo = [[NSImage alloc] initWithContentsOfFile:
-               [[NSBundle mainBundle] pathForResource:@"cytrusmark" ofType:@"png"]];
+               [[NSBundle mainBundle] pathForResource:@"cytruslogo" ofType:@"png"]];
     return self;
 }
 
@@ -146,24 +146,9 @@ static NSColor *purpleColor(void)
                [NSColor blackColor], NO);
     y += 62;
 
-    /* The Cytrus Software lockup: the mark, then the name beside it. */
-    {
-        NSDictionary *big = [NSDictionary dictionaryWithObjectsAndKeys:
-                                [NSFont boldSystemFontOfSize:21], NSFontAttributeName,
-                                [NSColor colorWithCalibratedWhite:0.12 alpha:1],
-                                NSForegroundColorAttributeName, nil];
-        NSDictionary *small = [NSDictionary dictionaryWithObjectsAndKeys:
-                                  [NSFont boldSystemFontOfSize:14], NSFontAttributeName,
-                                  [NSColor colorWithCalibratedWhite:0.12 alpha:1],
-                                  NSForegroundColorAttributeName, nil];
-        float textW = [@"SOFTWARE" sizeWithAttributes:small].width;
-        float markW = 46, gap = 12;
-        float x = (w - (markW + gap + textW)) / 2;
-        if (logo != nil)
-            GDDrawImageFitted(logo, NSMakeRect(x, y, markW, 56), NO);
-        [@"CYTRUS" drawAtPoint:NSMakePoint(x + markW + gap, y + 8) withAttributes:big];
-        [@"SOFTWARE" drawAtPoint:NSMakePoint(x + markW + gap, y + 33) withAttributes:small];
-    }
+    /* The Cytrus Software logo, as it is drawn everywhere else. */
+    if (logo != nil)
+        GDDrawImageFitted(logo, NSMakeRect((w - 240) / 2, y, 240, 63), NO);
 }
 
 @end
