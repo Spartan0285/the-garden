@@ -649,9 +649,24 @@ static NSString *megabytes(double b)
     /* One path for the life of the job, so retries resume the same .part. */
     job->downloadPath = [[job->workDir stringByAppendingPathComponent:[f name]] retain];
     if ([[NSFileManager defaultManager] fileExistsAtPath:job->downloadPath]) {
-        NSString *old = job->downloadPath;
-        job->downloadPath = [GDUniquePath(job->workDir, [f name]) retain];
-        [old release];
+        /* A copy is already here from a previous attempt.  Use it rather than
+         * fetching fifty megabytes again over a modem-era link to prove what
+         * the checksum proves in seconds: postProcess verifies the MD5 on a
+         * thread anyway, and throws the file away if it is wrong, so the next
+         * attempt downloads afresh.
+         *
+         * Only when there is a checksum to answer to.  -sizeBytes cannot
+         * stand in for one: it is parsed from the size the page displays
+         * ("5.27 MB"), so it is rounded, and never equals the real length. */
+        NSDictionary *a = [[NSFileManager defaultManager]
+                              fileAttributesAtPath:job->downloadPath traverseLink:NO];
+        if ([a fileSize] > 0 && [[f md5] length] == 32) {
+            job->reusedDownload = YES;
+        } else {
+            NSString *old = job->downloadPath;
+            job->downloadPath = [GDUniquePath(job->workDir, [f name]) retain];
+            [old release];
+        }
     }
     job->mirrorOrder = [[self orderMirrors:[f mirrors]] retain];
     /* One copy per title, as in the App Store: getting it again (or another
@@ -707,6 +722,15 @@ static NSString *megabytes(double b)
 - (void) startDownload:(GDInstallJob *)job
 {
     NSString *url, *host;
+    if (job->reusedDownload) {
+        /* Already on disk and the right size: straight to the checksum. */
+        job->reusedDownload = NO;          /* a retry after this one downloads */
+        job->bytesDone = job->bytesTotal = (long long)[job->file sizeBytes];   /* rounded; for the bar only */
+        job->progress = -1;
+        [self setJob:job state:GDJobVerifying status:@"Checking the copy already downloaded..."];
+        [NSThread detachNewThreadSelector:@selector(postProcess:) toTarget:self withObject:job];
+        return;
+    }
     if (job->mirror >= (int)[job->mirrorOrder count]) {
         [self setJob:job state:GDJobFailed
               status:@"Could not download from any mirror. Check the network and try again."];

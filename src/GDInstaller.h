@@ -56,6 +56,7 @@ typedef enum {
     double attemptStart;
     long long attemptBytes;    /* bytesDone when this attempt began */
     BOOL switchingMirror;      /* cancelled on purpose: too slow */
+    BOOL reusedDownload;       /* the whole file was already on disk */
     GDHTTPRequest *request;
     volatile BOOL cancelled;
     double started;

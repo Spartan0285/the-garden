@@ -201,8 +201,9 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
         NSString *stage = [GDAbout stage];
         NSString *suffix = stage ? [NSString stringWithFormat:@"The Garden (%@)", stage]
                                  : @"The Garden";
-        /* On the front page the page's own title is already the app's name. */
-        [window setTitle:[t isEqualToString:@"The Garden"] ? suffix :
+        /* On the front page, and on a page that arrived without one, the
+         * title is the app's name and nothing else. */
+        [window setTitle:([t length] == 0 || [t isEqualToString:@"The Garden"]) ? suffix :
             [NSString stringWithFormat:GDU("%@  \xE2\x80\x94  %@"), t, suffix]];
     }
 }
