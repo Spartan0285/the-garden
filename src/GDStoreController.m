@@ -12,6 +12,7 @@
 #import "GDStyle.h"
 
 static NSString *TBNav = @"nav", *TBSections = @"sections", *TBSearch = @"search";
+static NSString *TBBalance = @"balance";   /* keeps the sections centred in the window */
 
 enum { SegFeatured, SegApps, SegGames, SegCategories, SegLibrary, SegUpdates };
 
@@ -131,14 +132,18 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
 
 - (NSArray *) toolbarAllowedItemIdentifiers:(NSToolbar *)t
 {
-    return [NSArray arrayWithObjects:TBNav, TBSections, TBSearch,
+    return [NSArray arrayWithObjects:TBNav, TBBalance, TBSections, TBSearch,
                NSToolbarFlexibleSpaceItemIdentifier, NSToolbarSpaceItemIdentifier, nil];
 }
 
 - (NSArray *) toolbarDefaultItemIdentifiers:(NSToolbar *)t
 {
-    return [NSArray arrayWithObjects:TBNav, NSToolbarFlexibleSpaceItemIdentifier, TBSections,
-               NSToolbarFlexibleSpaceItemIdentifier, TBSearch, nil];
+    /* Two flexible spaces centre the sections in what is left over, not in the
+     * window: the search field is wider than the back/forward pair, so the
+     * tabs sit left of centre by half that difference.  A fixed spacer on the
+     * short side makes both ends weigh the same. */
+    return [NSArray arrayWithObjects:TBNav, TBBalance, NSToolbarFlexibleSpaceItemIdentifier,
+               TBSections, NSToolbarFlexibleSpaceItemIdentifier, TBSearch, nil];
 }
 
 - (NSToolbarItem *) toolbar:(NSToolbar *)t itemForItemIdentifier:(NSString *)ident
@@ -155,6 +160,10 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     } else if ([ident isEqualToString:TBSearch]) {
         v = searchField;
         [it setLabel:@"Search"];
+    } else if ([ident isEqualToString:TBBalance]) {
+        float d = NSWidth([searchField frame]) - NSWidth([navControl frame]);
+        v = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, d > 0 ? d : 0, 25)] autorelease];
+        [it setLabel:@""];
     }
     [it setView:v];
     [it setMinSize:[v frame].size];
@@ -189,8 +198,12 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     }
     {
         NSString *t = [page objectForKey:@"title"] ?: @"The Garden";
-        [window setTitle:[GDAbout stage] ?
-            [NSString stringWithFormat:@"%@ \xE2\x80\x94 The Garden (%@)", t, [GDAbout stage]] : t];
+        NSString *stage = [GDAbout stage];
+        NSString *suffix = stage ? [NSString stringWithFormat:@"The Garden (%@)", stage]
+                                 : @"The Garden";
+        /* On the front page the page's own title is already the app's name. */
+        [window setTitle:[t isEqualToString:@"The Garden"] ? suffix :
+            [NSString stringWithFormat:GDU("%@  \xE2\x80\x94  %@"), t, suffix]];
     }
 }
 

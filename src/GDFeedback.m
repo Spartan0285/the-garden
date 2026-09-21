@@ -2,6 +2,7 @@
 #import "GDHTTP.h"
 #import "GDCompat.h"
 #import "GDAccelerator.h"
+#import "GDWebLink.h"
 #import "GDStyle.h"
 #include <sys/sysctl.h>
 #include <stdlib.h>          /* arc4random */
@@ -105,7 +106,7 @@ static NSString *systemJSON(void)
     accelerator = [GDAccelerator baseURL] != nil ? @"in use" : @"not in use";
     return [NSString stringWithFormat:
         @"{\"os\":%@,\"arch\":%@,\"model\":%@,\"memoryMB\":%llu,\"screen\":%@,"
-         "\"classic\":%@,\"accelerator\":%@}",
+         "\"classic\":%@,\"accelerator\":%@,\"browser\":%@,\"polliwog\":%@}",
         jsonString([NSString stringWithFormat:@"10.%d", [GDCompat hostOSMinor]]),
         jsonString([GDCompat hostIsPPC] ? @"PowerPC" : @"Intel"),
         jsonString(sysctlString("hw.model")),
@@ -113,7 +114,9 @@ static NSString *systemJSON(void)
         jsonString([NSString stringWithFormat:@"%dx%d",
                        (int)NSWidth(screen), (int)NSHeight(screen)]),
         [GDCompat hostHasClassic] ? @"true" : @"false",
-        jsonString(accelerator)];
+        jsonString(accelerator),
+        jsonString([GDWebLink defaultBrowserName]),
+        [GDWebLink polliwogPath] != nil ? @"true" : @"false"];
 }
 
 @interface GDFeedback (Private)

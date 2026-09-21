@@ -183,3 +183,61 @@ this bug and it was fixed on 2026-09-20; don't reintroduce it in the next app.
 - [ ] The endpoint address overridable without a rebuild
 - [ ] `400` does not retry; `5xx` does
 - [ ] Nothing sent unless Send is pressed
+
+---
+
+## 6. Linking out to the web
+
+**Every app in this family except Captain Polliwog should do this.**
+
+An About box or a help link that calls `openURL:` sends someone to the browser
+their Mac came with. Safari 4 on Tiger and Safari 5 on Leopard stop at TLS 1.0,
+which almost nothing accepts now, so the link does not open a page - it opens a
+failure, in another application, with no explanation. Cytrus Retro's own site
+is among the sites that will refuse it.
+
+Captain Polliwog is a browser for 10.4 and 10.5 that can reach a modern site.
+So a link should ask, rather than assume:
+
+| Situation | What happens |
+|---|---|
+| Polliwog is already the default browser | Open it. Say nothing. |
+| Polliwog is installed, but not the default | Offer it first: **Open in Captain Polliwog** / Open in My Browser / Cancel |
+| Polliwog is not installed | Recommend it: **Get Captain Polliwog** / Open in My Browser / Cancel |
+
+The reader's own browser is always on the panel. The recommendation is the
+default button, never the only button - someone may well have TenFourFox or
+Aquafox set up and know exactly what they are doing.
+
+`src/GDWebLink.m` in The Garden is about seventy lines and can be copied
+wholesale; only `GDPolliwogPage` needs changing. The pieces:
+
+```objc
+// installed?
+[[NSWorkspace sharedWorkspace] absolutePathForAppBundleWithIdentifier:
+    @"org.captainpolliwog.browser"]
+
+// the default browser?
+LSCopyDefaultHandlerForURLScheme(CFSTR("http"))      // compare, case-insensitively
+
+// open a URL in it
+[[NSWorkspace sharedWorkspace] openURLs:[NSArray arrayWithObject:url]
+                withAppBundleIdentifier:@"org.captainpolliwog.browser"
+                                options:NSWorkspaceLaunchDefault
+         additionalEventParamDescriptor:nil launchIdentifiers:NULL];
+```
+
+One wrinkle worth knowing: **"Get Captain Polliwog" cannot send them to their
+browser either** - that is the whole problem. Show the download page in the
+app's own web view, which has the bundled TLS. Recommending a browser by
+opening a page that will not load is not a recommendation.
+
+While you are there, put the answers in the report:
+
+```json
+"system": { "browser": "Safari", "polliwog": true }
+```
+
+The server renders any `system` key it does not already know about, so this
+costs nothing on the endpoint. Knowing that someone is on Safari 4 explains a
+class of report by itself.

@@ -1,6 +1,6 @@
 #import "GDAbout.h"
 #import "GDStyle.h"
-#import "GDWebWindow.h"
+#import "GDWebLink.h"
 
 #define ABOUT_W 460.0
 #define ABOUT_H 430.0
@@ -239,18 +239,16 @@ static GDAbout *sharedAbout;
     [window makeKeyAndOrderFront:nil];
 }
 
-/* The app's own web view, not the system browser: Safari on these systems
- * cannot make a modern TLS connection, so the link would simply fail. */
+/* GDWebLink decides where these go: their own browser when it can cope,
+ * Captain Polliwog when it is there, and a recommendation when it is not. */
 - (void) openCytrus:(id)sender
 {
-    [GDWebWindow openURL:[NSURL URLWithString:@"https://www.cytrusretro.com/"]
-                   title:@"Cytrus Retro"];
+    [GDWebLink openURL:[NSURL URLWithString:@"https://www.cytrusretro.com/"]];
 }
 
 - (void) openCoach:(id)sender
 {
-    [GDWebWindow openURL:[NSURL URLWithString:@"https://www.amcreativecoach.com/"]
-                   title:@"AM Creative Coach"];
+    [GDWebLink openURL:[NSURL URLWithString:@"https://www.amcreativecoach.com/"]];
 }
 
 @end
