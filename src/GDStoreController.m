@@ -14,6 +14,7 @@
 
 static NSString *TBNav = @"nav", *TBSections = @"sections", *TBSearch = @"search";
 static NSString *TBBalance = @"balance";   /* keeps the sections centred in the window */
+static NSString *TBFilter = @"filter";
 
 enum { SegFeatured, SegApps, SegGames, SegCategories, SegLibrary, SegUpdates };
 
@@ -22,6 +23,8 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
 
 @interface GDStoreController (Private)
 - (void) rebuildSections;
+- (void) buildFilterMenu;
+- (void) filtersChanged;
 - (void) updateBadges;
 - (void) updateChrome;
 - (void) loadShelf:(GDShelf *)sh url:(NSURL *)u;
@@ -106,7 +109,18 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     [sectionControl setAction:@selector(sectionClicked:)];
     [self rebuildSections];
 
-    searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(0, 0, 200, 22)];
+    /* The same badge filters as the View menu, in reach of the page they act
+     * on.  A pull-down, so its first item is a label and not a selection. */
+    filterButton = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 92, 25) pullsDown:YES];
+    [filterButton setBezelStyle:NSRoundedBezelStyle];
+    [[filterButton cell] setControlSize:NSSmallControlSize];
+    [filterButton setFont:[NSFont systemFontOfSize:11]];
+    [self buildFilterMenu];
+
+    /* 168, not 200: everything in the toolbar has to fit across a 1024-point
+     * screen, which is what a Pismo has, or the search field is pushed into
+     * the overflow menu. */
+    searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(0, 0, 148, 22)];
     [[searchField cell] setPlaceholderString:@"Search the Garden"];
     [[searchField cell] setSendsWholeSearchString:YES];
     [searchField setTarget:self];
@@ -200,7 +214,7 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
      * tabs sit left of centre by half that difference.  A fixed spacer on the
      * short side makes both ends weigh the same. */
     return [NSArray arrayWithObjects:TBNav, TBBalance, NSToolbarFlexibleSpaceItemIdentifier,
-               TBSections, NSToolbarFlexibleSpaceItemIdentifier, TBSearch, nil];
+               TBSections, NSToolbarFlexibleSpaceItemIdentifier, TBFilter, TBSearch, nil];
 }
 
 - (NSToolbarItem *) toolbar:(NSToolbar *)t itemForItemIdentifier:(NSString *)ident
@@ -217,8 +231,12 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     } else if ([ident isEqualToString:TBSearch]) {
         v = searchField;
         [it setLabel:@"Search"];
+    } else if ([ident isEqualToString:TBFilter]) {
+        v = filterButton;
+        [it setLabel:@"Badges"];
     } else if ([ident isEqualToString:TBBalance]) {
-        float d = NSWidth([searchField frame]) - NSWidth([navControl frame]);
+        float d = NSWidth([searchField frame]) + NSWidth([filterButton frame]) + 8
+                      - NSWidth([navControl frame]);
         v = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, d > 0 ? d : 0, 25)] autorelease];
         [it setLabel:@""];
     }
@@ -474,9 +492,44 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
     return [hiddenVerdicts containsObject:[NSNumber numberWithInt:v]];
 }
 
+/* The pull-down's menu: a label, then one line per badge, then the two
+ * presets.  Rebuilt rather than re-ticked, because a pull-down's first item is
+ * its title and the rest shift with it. */
+- (void) buildFilterMenu
+{
+    NSMenu *m = [[[NSMenu alloc] initWithTitle:@"Badges"] autorelease];
+    NSArray *all = [GDCompat allVerdicts];
+    unsigned i;
+    NSMenuItem *it;
+
+    [m addItemWithTitle:@"Badges" action:NULL keyEquivalent:@""];
+    for (i = 0; i < [all count]; i++) {
+        int v = [[all objectAtIndex:i] intValue];
+        it = [m addItemWithTitle:[GDCompat shortLabel:(GDVerdict)v]
+                          action:@selector(toggleVerdictFilter:) keyEquivalent:@""];
+        [it setTarget:self];
+        [it setTag:v];
+        [it setState:[self isVerdictHidden:v] ? NSOffState : NSOnState];
+    }
+    [m addItem:[NSMenuItem separatorItem]];
+    it = [m addItemWithTitle:@"Show Every Badge" action:@selector(showAllBadges:) keyEquivalent:@""];
+    [it setTarget:self];
+    [it setEnabled:[hiddenVerdicts count] > 0];
+    it = [m addItemWithTitle:@"Only What Runs on This Mac"
+                      action:@selector(toggleOnlyRunnable:) keyEquivalent:@""];
+    [it setTarget:self];
+    [filterButton setMenu:m];
+    /* A pull-down shows item 0 as its title; say how many are put away. */
+    [[filterButton itemAtIndex:0] setTitle:
+        [hiddenVerdicts count] ? [NSString stringWithFormat:@"Badges (%u)",
+                                     (unsigned)[hiddenVerdicts count]]
+                               : @"Badges"];
+}
+
 /* One place to save the set and put it to work on the page on screen. */
 - (void) filtersChanged
 {
+    [self buildFilterMenu];
     [[NSUserDefaults standardUserDefaults] setObject:[hiddenVerdicts allObjects]
                                               forKey:@"GDHiddenVerdicts"];
     if ([pageView isKindOfClass:[GDGridView class]])

@@ -15,6 +15,7 @@
     NSSegmentedControl *navControl;
     NSSegmentedControl *sectionControl;
     NSSearchField *searchField;
+    NSPopUpButton *filterButton;    /* the badges, to show or hide */
 
     NSMutableArray *history;
     int historyIndex;

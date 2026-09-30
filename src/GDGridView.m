@@ -92,9 +92,12 @@ enum { HitItem, HitCategory, HitMore, HitSeeAll, HitLetter };
     GDVerdict v;
     if ([hiddenVerdicts count] == 0 || ![e isKindOfClass:[GDItem class]])
         return YES;
+    /* Badges arrive one at a time, and hiding each tile the moment its own
+     * answer lands makes the page shuffle itself for as long as that takes.
+     * Nothing is hidden until they are all in, so the list settles once. */
+    if ([[GDCatalog sharedCatalog] pendingDetailLoads] > 0)
+        return YES;
     v = [[GDCatalog sharedCatalog] verdictForPath:[e path] known:&known];
-    /* Still being worked out: leave it in rather than have tiles disappear
-     * from under the reader as the answers arrive. */
     return !known || ![hiddenVerdicts containsObject:[NSNumber numberWithInt:(int)v]];
 }
 
@@ -334,7 +337,10 @@ enum { HitItem, HitCategory, HitMore, HitSeeAll, HitLetter };
                 visible++;
         }
         pulled = [[sh->state objectForKey:@"autoPulled"] intValue];
-        if (unknown == 0 && visible < 12 && pulled < 8 &&
+        /* Each pull is another listing page, and every item on it wants its
+         * own page fetched and parsed before its badge is known.  Three is
+         * enough to fill a screen; eight was minutes of work on a G3. */
+        if (unknown == 0 && visible < 12 && pulled < 3 &&
             [delegate respondsToSelector:@selector(gridView:moreForShelf:)]) {
             [sh->state setObject:[NSNumber numberWithInt:pulled + 1] forKey:@"autoPulled"];
             [delegate gridView:self moreForShelf:sh];

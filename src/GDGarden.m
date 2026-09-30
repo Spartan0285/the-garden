@@ -523,6 +523,8 @@ static void attachDownloadNotes(NSString *desc, NSArray *files)
     }
 }
 
++ (void) prepareParser { xmlInitParser(); }
+
 + (GDItemDetail *) parseItem:(NSData *)html path:(NSString *)path
 {
     htmlDocPtr doc = parseHTML(html);

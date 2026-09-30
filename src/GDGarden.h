@@ -122,6 +122,11 @@ typedef enum {
 + (NSURL *) absoluteURL:(NSString *)href;
 
 /* Parsers; all take the raw page bytes. */
+/* Call once, from the main thread, before any parsing happens anywhere else:
+ * libxml2 sets itself up lazily otherwise, which is not safe to do from two
+ * threads at once. */
++ (void) prepareParser;
+
 + (GDListing *) parseListing:(NSData *)html;
 + (GDListing *) parseSearch:(NSData *)html;
 + (GDItemDetail *) parseItem:(NSData *)html path:(NSString *)path;

@@ -23,6 +23,8 @@ extern NSString *GDImageLoadedNotification;    /* object: image URL */
     NSMutableSet *imageLoads;
     NSMutableArray *imageLRU;
     NSString *cacheDir;
+    NSString *verdictPath;         /* the verdicts, kept between launches */
+    BOOL verdictsDirty;
     NSMutableSet *refreshing;      /* paths to fetch past the cache */
 }
 + (GDCatalog *) sharedCatalog;
@@ -34,6 +36,7 @@ extern NSString *GDImageLoadedNotification;    /* object: image URL */
 - (NSImage *) imageForURL:(NSString *)url;           /* nil: loading or none */
 - (NSString *) cacheDirectory;
 - (int) pendingLoads;
+- (int) pendingDetailLoads;    /* badges still being worked out */
 @end
 
 NSString *GDMD5OfString(NSString *s);

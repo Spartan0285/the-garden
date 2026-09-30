@@ -77,13 +77,50 @@ NSString *GDMD5OfFile(NSString *path)
     [[NSFileManager defaultManager] createDirectoryAtPath:[cacheDir stringByDeletingLastPathComponent]
                                                attributes:nil];
     [[NSFileManager defaultManager] createDirectoryAtPath:cacheDir attributes:nil];
+    [GDGarden prepareParser];
+
+    /* Working a badge out means fetching an item's page and parsing it, which
+     * on a G3 is a fifth of a second of the main thread each - ten of them for
+     * one listing.  The answers are kept between launches so that is paid once.
+     *
+     * They depend on the Mac as much as on the software, so the file is thrown
+     * away whole when this Mac stops being the one they were worked out for -
+     * a Mac OS 9 System Folder appearing turns "Needs Mac OS 9" into "Runs in
+     * Classic" for a great many items at once. */
+    verdictPath = [[[self cacheDirectory] stringByAppendingPathComponent:@"Verdicts.plist"] retain];
+    {
+        NSDictionary *saved = [NSDictionary dictionaryWithContentsOfFile:verdictPath];
+        if ([[saved objectForKey:@"host"] isEqualToString:[GDCompat hostDescription]]) {
+            NSDictionary *v = [saved objectForKey:@"verdicts"];
+            if ([v isKindOfClass:[NSDictionary class]])
+                [verdicts addEntriesFromDictionary:v];
+        }
+    }
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveVerdicts)
+                                                 name:NSApplicationWillTerminateNotification
+                                               object:nil];
     return self;
+}
+
+/* Written when the app is put away, and on a timer while it is used, so a
+ * crash does not cost the whole session's work. */
+- (void) saveVerdicts
+{
+    NSDictionary *out;
+    if (!verdictsDirty)
+        return;
+    verdictsDirty = NO;
+    out = [NSDictionary dictionaryWithObjectsAndKeys:
+              [GDCompat hostDescription] ?: @"", @"host", verdicts, @"verdicts", nil];
+    [out writeToFile:verdictPath atomically:YES];
 }
 
 - (int) pendingLoads
 {
     return (int)([detailLoads count] + [imageLoads count]);
 }
+
+- (int) pendingDetailLoads { return (int)[detailLoads count]; }
 
 - (NSString *) cacheDirectory
 {
@@ -128,6 +165,9 @@ NSString *GDMD5OfFile(NSString *path)
     if (known)
         *known = n != nil;
     if (n == nil) {
+        /* Not known yet: the item's page settles it.  Once it is known the
+         * page is left alone - a listing of ten costs nothing on the way back
+         * to it, and opening the item fetches the page then. */
         [self detailForPath:path];
         return GDVerdictUnknown;
     }
@@ -187,20 +227,56 @@ NSString *GDMD5OfFile(NSString *path)
 
 /* ----------------------------------------------------------- delivery */
 
+/* Worker thread: an item page is a fifth of a second of parsing on a G3, and
+ * a listing wants ten of them.  Doing that on the main thread stopped the
+ * window answering for as long as it took. */
+- (void) parseDetailOnThread:(NSArray *)a
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    NSString *key = [a objectAtIndex:0];
+    GDItemDetail *d = [GDGarden parseItem:[a objectAtIndex:1] path:key];
+    /* The argument is retained until it is delivered, so the detail outlives
+     * this pool. */
+    [self performSelectorOnMainThread:@selector(detailParsed:)
+                           withObject:[NSArray arrayWithObjects:key, d ?: (id)[NSNull null], nil]
+                        waitUntilDone:NO];
+    [pool release];
+}
+
+- (void) detailParsed:(NSArray *)a
+{
+    NSString *key = [a objectAtIndex:0];
+    id d = [a objectAtIndex:1];
+    [detailLoads removeObject:key];
+    if (d != (id)[NSNull null] && d != nil) {
+        [details setObject:d forKey:key];
+        [verdicts setObject:[NSNumber numberWithInt:[GDCompat verdictForItem:d bestFile:NULL]]
+                     forKey:key];
+        if (!verdictsDirty) {
+            verdictsDirty = YES;
+            [self performSelector:@selector(saveVerdicts) withObject:nil afterDelay:3.0];   /* short: a browse-and-quit still leaves them behind */
+        }
+    }
+    [[NSNotificationCenter defaultCenter] postNotificationName:GDDetailLoadedNotification
+                                                        object:key];
+}
+
 - (void) httpRequestDidFinish:(GDHTTPRequest *)r
 {
     NSString *key = [r userInfo];
     if ([r tag] == 1) {
-        GDItemDetail *d = [r error] ? nil : [GDGarden parseItem:[r data] path:key];
-        [detailLoads removeObject:key];
-        if (d != nil) {
-            [details setObject:d forKey:key];
-            [verdicts setObject:[NSNumber numberWithInt:[GDCompat verdictForItem:d bestFile:NULL]]
-                         forKey:key];
+        if ([r error] || [[r data] length] == 0) {
+            [self detailParsed:[NSArray arrayWithObjects:key, [NSNull null], nil]];
+            return;
         }
-        [[NSNotificationCenter defaultCenter] postNotificationName:GDDetailLoadedNotification
-                                                            object:key];
-    } else {
+        /* A copy, because the request owns its buffer and is finished with
+         * here; the thread needs it to stay put. */
+        [NSThread detachNewThreadSelector:@selector(parseDetailOnThread:) toTarget:self
+                               withObject:[NSArray arrayWithObjects:key,
+                                              [NSData dataWithData:[r data]], nil]];
+        return;
+    }
+    {
         NSImage *i = nil;
         [imageLoads removeObject:key];
         if ([r error] == nil && [[r data] length]) {
