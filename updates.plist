@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3.5 Alpha</string>
+	<string>0.3.6 Alpha</string>
 	<key>build</key>
-	<string>12</string>
+	<string>13</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.5/TheGarden-0.3.5.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.6/TheGarden-0.3.6.zip</string>
 	<key>sha256</key>
-	<string>c4a9c077a4c1ad93b2e43d39c7206eaaaf13f1bab4dad106098fa9f4723a1f92</string>
+	<string>cdaeb40f36aca6b9af42f9f281259fe955030442db4b0fb16509134f36d57a9a</string>
 	<key>size</key>
-	<string>6844162</string>
+	<string>6844643</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Every download you start now stays in the Library, including ones that failed or that were cut short when the app stopped, and any of them can be tried again later. You can remove a single download or clear the list, and Remove on an installed title asks whether to move the copy to the Trash or only forget it here. An update you do not want can be ignored, and a new Settings window (in the application menu) can turn the Updates tab off altogether.</string>
+	<string>A download no longer takes the whole main thread. On a slower Mac the window's own title bar could stop answering while something was downloading - close, minimise, zoom, the toolbar button and the resize corner all did nothing - because the item page was being laid out again for every chunk that arrived. Progress is now reported at most five times a second whatever the speed of the download, and a progress tick moves the bar and its line of text instead of rebuilding the page. Measured on a PowerBook G3: the main thread went from never idle to idle about three quarters of the time.</string>
 	<key>signature</key>
-	<string>tq66PhGitbqjrcbHZ8wQgAEJTlpYUFI640yS2B7JWNQ1b5dfFAmVAXmKVLiKYnNIQj0eyWHfSF5ywYCLiirBDA==</string>
+	<string>YKQ6IJ56F+vjCS3PN6PSob9UMDlXx5xq0vG2762anqzLMeZ6TYS0qHL1Pxy5H0e96ah27RJJv9ZyCMX7KhUDAQ==</string>
 </dict>
 </plist>
