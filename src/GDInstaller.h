@@ -80,6 +80,10 @@ typedef enum {
     NSMutableDictionary *speeds;   /* mirror host -> bytes/s, remembered */
     GDInstallJob *currentExtractJob;   /* worker thread's job, for progress */
     NSMutableArray *updates;   /* {entry, file, detail} */
+    NSMutableArray *history;   /* every download attempted, newest first */
+    NSString *historyPath;
+    NSMutableSet *retrying;    /* item paths whose page is being fetched to retry */
+    NSMutableArray *ignored;   /* "path\tfile" of updates not to offer again */
 }
 + (GDInstaller *) sharedInstaller;
 
@@ -95,15 +99,41 @@ typedef enum {
 - (NSDictionary *) libraryEntryForPath:(NSString *)path;
 - (NSImage *) iconForEntry:(NSDictionary *)entry;   /* the installed app's icon, or nil */
 
+- (void) removeLibraryEntry:(NSDictionary *)entry moveToTrash:(BOOL)trash;
+
+/* Download history: one record per file ever asked for, saved as it goes, so
+ * an attempt that failed - or that the app was killed in the middle of - is
+ * still there to try again after a relaunch.  Newest first.  Keys:
+ *   key         path + tab + file name; the record's identity
+ *   path title thumb arch          the item it came from
+ *   file size sizeBytes md5 mirrors systems    the file that was asked for
+ *   state       downloading | retrying | interrupted | cancelled | failed | done
+ *   status      the last line that was shown for it
+ *   date        when it was last worked on
+ *   bytesDone bytesTotal
+ *   launch reveal      set once installed, so Open keeps working next launch
+ */
+- (NSArray *) history;
+- (GDInstallJob *) jobForHistoryEntry:(NSDictionary *)h;   /* nil after a relaunch */
+- (void) retryHistoryEntry:(NSDictionary *)h;
+- (void) removeHistoryEntry:(NSDictionary *)h;
+- (void) clearHistory;     /* every record that is not being fetched right now */
+
 /* Updates: a newer file of the same kind as the installed one. */
 - (void) checkForUpdates;
 - (NSArray *) updates;                               /* {entry, file, detail} */
 - (GDInstallJob *) installUpdate:(NSDictionary *)update;
 + (GDFile *) newerFileFor:(NSDictionary *)entry inDetail:(GDItemDetail *)d;
 
+/* An update the user does not want to be offered again.  Remembered per file,
+ * so a later, newer one is still offered. */
+- (void) ignoreUpdate:(NSDictionary *)update;
+- (BOOL) isUpdateIgnoredForPath:(NSString *)path file:(NSString *)name;
+- (unsigned) ignoredUpdateCount;
+- (void) clearIgnoredUpdates;
+
 /* Dock: add an installed app. */
 - (BOOL) addToDock:(NSDictionary *)entry;
-- (void) removeLibraryEntry:(NSDictionary *)entry moveToTrash:(BOOL)trash;
 
 + (NSString *) downloadsFolder;
 @end

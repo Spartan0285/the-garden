@@ -10,6 +10,7 @@
 #import "GDCatalog.h"
 #import "GDInstaller.h"
 #import "GDStyle.h"
+#import "GDSettings.h"
 
 static NSString *TBNav = @"nav", *TBSections = @"sections", *TBSearch = @"search";
 static NSString *TBBalance = @"balance";   /* keeps the sections centred in the window */
@@ -20,6 +21,9 @@ enum { SegFeatured, SegApps, SegGames, SegCategories, SegLibrary, SegUpdates };
 enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
 
 @interface GDStoreController (Private)
+- (void) rebuildSections;
+- (void) updateBadges;
+- (void) updateChrome;
 - (void) loadShelf:(GDShelf *)sh url:(NSURL *)u;
 - (void) runSearch:(NSString *)keys page:(int)n shelf:(GDShelf *)sh;
 - (GDHTTPRequest *) request:(NSURL *)u tag:(int)tag info:(id)info;
@@ -75,25 +79,9 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     [navControl setAction:@selector(navClicked:)];
 
     sectionControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, 0, 420, 25)];
-    [sectionControl setSegmentCount:6];
-    [sectionControl setLabel:@"Featured" forSegment:SegFeatured];
-    [sectionControl setLabel:@"Apps" forSegment:SegApps];
-    [sectionControl setLabel:@"Games" forSegment:SegGames];
-    [sectionControl setLabel:@"Categories" forSegment:SegCategories];
-    [sectionControl setLabel:@"Library" forSegment:SegLibrary];
-    [sectionControl setLabel:@"Updates" forSegment:SegUpdates];
-    {
-        float widths[] = { 74, 52, 58, 80, 78, 82 };
-        float total = 0;
-        int k;
-        for (k = 0; k < 6; k++) {
-            [sectionControl setWidth:widths[k] forSegment:k];
-            total += widths[k];
-        }
-        [sectionControl setFrameSize:NSMakeSize(total + 12, 25)];
-    }
     [sectionControl setTarget:self];
     [sectionControl setAction:@selector(sectionClicked:)];
+    [self rebuildSections];
 
     searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(0, 0, 200, 22)];
     [[searchField cell] setPlaceholderString:@"Search the Garden"];
@@ -111,7 +99,50 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
                                                  name:GDJobChangedNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(jobChanged:)
                                                  name:GDUpdatesChangedNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(settingsChanged:)
+                                                 name:GDSettingsChangedNotification object:nil];
     return self;
+}
+
+/* Updates is the last tab, so turning it off is just a shorter control.  The
+ * toolbar pinned the item to the width the control had when it was made, so
+ * the item has to be made again for the new one to fit. */
+- (void) rebuildSections
+{
+    float widths[] = { 74, 52, 58, 80, 78, 82 };
+    NSToolbar *tb = [window toolbar];
+    int n = [GDSettings updatesTabHidden] ? 5 : 6, k;
+    float total = 0;
+
+    [sectionControl setSegmentCount:n];
+    [sectionControl setLabel:@"Featured" forSegment:SegFeatured];
+    [sectionControl setLabel:@"Apps" forSegment:SegApps];
+    [sectionControl setLabel:@"Games" forSegment:SegGames];
+    [sectionControl setLabel:@"Categories" forSegment:SegCategories];
+    [sectionControl setLabel:@"Library" forSegment:SegLibrary];
+    if (n > SegUpdates)
+        [sectionControl setLabel:@"Updates" forSegment:SegUpdates];
+    for (k = 0; k < n; k++) {
+        [sectionControl setWidth:widths[k] forSegment:k];
+        total += widths[k];
+    }
+    [sectionControl setFrameSize:NSMakeSize(total + 12, 25)];
+    for (k = 0; tb != nil && k < (int)[[tb items] count]; k++)
+        if ([[[[tb items] objectAtIndex:k] itemIdentifier] isEqualToString:TBSections]) {
+            [tb removeItemAtIndex:k];
+            [tb insertItemWithItemIdentifier:TBSections atIndex:k];
+            break;
+        }
+}
+
+- (void) settingsChanged:(NSNotification *)n
+{
+    [self rebuildSections];
+    if ([GDSettings updatesTabHidden] && [[page objectForKey:@"kind"] isEqualToString:@"updates"])
+        [self showLibrary:nil];
+    else
+        [self updateChrome];
+    [self updateBadges];
 }
 
 - (NSWindow *) window { return window; }
@@ -123,8 +154,11 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     [window makeKeyAndOrderFront:nil];
     if (page == nil) {
         [self showFeatured:nil];
-        /* Look for updates to installed titles a little after launch. */
-        [[GDInstaller sharedInstaller] performSelector:@selector(checkForUpdates) withObject:nil afterDelay:3];
+        /* Look for updates to installed titles a little after launch, unless
+         * the user has turned that whole tab off. */
+        if (![GDSettings updatesTabHidden])
+            [[GDInstaller sharedInstaller] performSelector:@selector(checkForUpdates)
+                                               withObject:nil afterDelay:3];
     }
 }
 
@@ -185,6 +219,8 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     else if ([kind isEqualToString:@"categories"]) seg = SegCategories;
     else if ([kind isEqualToString:@"library"]) seg = SegLibrary;
     else if ([kind isEqualToString:@"updates"]) seg = SegUpdates;
+    if (seg >= (int)[sectionControl segmentCount])
+        seg = -1;
     if (seg >= 0)
         [sectionControl setSelectedSegment:seg];
     else {
@@ -402,7 +438,12 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
 - (IBAction) showGames:(id)s { [self go:pageOf(@"games", @"Games")]; }
 - (IBAction) showCategories:(id)s { [self go:pageOf(@"categories", @"Categories")]; }
 - (IBAction) showLibrary:(id)s { [self go:pageOf(@"library", @"Library")]; }
-- (IBAction) showUpdates:(id)s { [self go:pageOf(@"updates", @"Updates")]; }
+- (IBAction) showUpdates:(id)s
+{
+    if ([GDSettings updatesTabHidden])
+        return;
+    [self go:pageOf(@"updates", @"Updates")];
+}
 - (IBAction) focusSearch:(id)s { [window makeFirstResponder:searchField]; }
 - (IBAction) reloadPage:(id)s { if (page) [self show:page]; }
 - (BOOL) onlyRunnable { return onlyRunnable; }
@@ -423,6 +464,8 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
         return historyIndex > 0;
     if ([m action] == @selector(goForward:))
         return historyIndex < (int)[history count] - 1;
+    if ([m action] == @selector(showUpdates:))
+        return ![GDSettings updatesTabHidden];
     return YES;
 }
 
@@ -743,7 +786,8 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
 - (void) updateBadges
 {
     NSArray *jobs = [[GDInstaller sharedInstaller] jobs];
-    int active = 0, nupd = (int)[[[GDInstaller sharedInstaller] updates] count];
+    BOOL noUpdates = [GDSettings updatesTabHidden];
+    int active = 0, nupd = noUpdates ? 0 : (int)[[[GDInstaller sharedInstaller] updates] count];
     long long done = 0, total = 0;
     double now = CFAbsoluteTimeGetCurrent();
     unsigned i;
@@ -761,8 +805,9 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
     }
     [sectionControl setLabel:active ? [NSString stringWithFormat:@"Library (%d)", active] : @"Library"
                   forSegment:SegLibrary];
-    [sectionControl setLabel:nupd ? [NSString stringWithFormat:@"Updates (%d)", nupd] : @"Updates"
-                  forSegment:SegUpdates];
+    if (!noUpdates)
+        [sectionControl setLabel:nupd ? [NSString stringWithFormat:@"Updates (%d)", nupd] : @"Updates"
+                      forSegment:SegUpdates];
 
     if (active && now - lastDockDraw < 0.5)
         return;

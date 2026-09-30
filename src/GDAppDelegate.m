@@ -8,6 +8,7 @@
 #import "GDStyle.h"
 #import "GDFeedback.h"
 #import "GDAbout.h"
+#import "GDSettings.h"
 
 static NSMenu *addSubmenu(NSMenu *bar, NSString *title)
 {
@@ -40,6 +41,8 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     [m addItem:[NSMenuItem separatorItem]];
     addItem(m, GDU("Check for Updates\xE2\x80\xA6"), @selector(checkForUpdates:), nil);
     addItem(m, GDU("Send Feedback\xE2\x80\xA6"), @selector(sendFeedback:), nil);
+    [m addItem:[NSMenuItem separatorItem]];
+    addItem(m, GDU("Settings\xE2\x80\xA6"), @selector(showSettings:), @",");
     [m addItem:[NSMenuItem separatorItem]];
     addItem(m, @"Hide The Garden", @selector(hide:), @"h");
     it = addItem(m, @"Hide Others", @selector(hideOtherApplications:), @"h");
@@ -136,6 +139,11 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     [GDAbout show];
 }
 
+- (IBAction) showSettings:(id)sender
+{
+    [GDSettings show];
+}
+
 - (IBAction) sendFeedback:(id)sender
 {
     [GDFeedback openForWindow:[store window] page:[store currentPageDescription]];
@@ -200,6 +208,22 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     /* Optional: open the About window and snapshot that instead. */
     if ([d boolForKey:@"GDDebugAbout"] && !debugWebOpened && debugQuiet >= 4) {
         [self showAbout:nil];
+        debugWebOpened = YES;
+        debugQuiet = 0;
+    }
+    /* Optional: Try Again on the newest past download, as the Library's button
+     * does.  Used to test that a record saved by an earlier run can be picked
+     * up again once that run is gone. */
+    if ([d boolForKey:@"GDDebugRetry"] && ticks == 4 &&
+        [[[GDInstaller sharedInstaller] history] count]) {
+        [store showLibrary:nil];
+        [[GDInstaller sharedInstaller]
+            retryHistoryEntry:[[[GDInstaller sharedInstaller] history] objectAtIndex:0]];
+        debugQuiet = 0;
+    }
+    /* Optional: open the Settings window and snapshot that instead. */
+    if ([d boolForKey:@"GDDebugSettings"] && !debugWebOpened && debugQuiet >= 4) {
+        [self showSettings:nil];
         debugWebOpened = YES;
         debugQuiet = 0;
     }

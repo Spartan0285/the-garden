@@ -5,9 +5,12 @@
 #include <math.h>
 
 #define MARGIN 24
-#define ROW_H 64
-#define ENTRY_H 88
+#define ROW_H 86           /* a past download: three buttons, and a failure
+                            * worth reading takes two lines above the date */
+#define UPD_H 76           /* an update: three lines and two buttons */
+#define ENTRY_H 88         /* an installed title */
 #define BTN_W 116
+#define BTN_H 20
 
 @interface GDLibraryView (Private)
 - (GDInstallJob *) updateJobAt:(unsigned)k;
@@ -51,6 +54,15 @@
 - (void) setShowsUpdates:(BOOL)f { showsUpdates = f; [self reload]; }
 - (void) imageChanged:(NSNotification *)n { [self setNeedsDisplay:YES]; }
 
+/* The job behind a row, while this run of the app still has one.  A record
+ * from an earlier launch has none, and the row is drawn from the record. */
+- (GDInstallJob *) jobForRow:(NSArray *)row
+{
+    if (![[row objectAtIndex:0] isEqualToString:@"past"])
+        return nil;
+    return [[GDInstaller sharedInstaller] jobForHistoryEntry:[row objectAtIndex:1]];
+}
+
 - (void) changed:(NSNotification *)n
 {
     GDInstallJob *j = [n object];
@@ -59,7 +71,7 @@
         unsigned i;
         for (i = 0; i < [rows count]; i++) {
             NSArray *r = [rows objectAtIndex:i];
-            if ([r objectAtIndex:1] == j && [r count] > 3) {
+            if ([self jobForRow:r] == j && [r count] > 3) {
                 NSProgressIndicator *bar = [r objectAtIndex:3];
                 if ([j progress] >= 0) {
                     [bar setIndeterminate:NO];
@@ -88,12 +100,56 @@
     return b;
 }
 
+- (NSProgressIndicator *) barFor:(GDInstallJob *)j at:(NSRect)r
+{
+    NSProgressIndicator *bar = [[[NSProgressIndicator alloc] initWithFrame:r] autorelease];
+    [bar setStyle:NSProgressIndicatorBarStyle];
+    [bar setControlSize:NSSmallControlSize];
+    if (j == nil || [j progress] < 0) {
+        [bar setIndeterminate:YES];
+        [bar startAnimation:nil];
+    } else {
+        [bar setIndeterminate:NO];
+        [bar setDoubleValue:[j progress] * 100];
+    }
+    [self addSubview:bar];
+    [controls addObject:bar];
+    return bar;
+}
+
+static BOOL exists(NSString *p)
+{
+    return [p length] && [[NSFileManager defaultManager] fileExistsAtPath:p];
+}
+
+/* Where a finished download can be opened and shown, whether or not the job
+ * that fetched it is still in memory. */
+static NSString *recordLaunch(NSDictionary *h, GDInstallJob *j)
+{
+    NSString *p = j != nil ? [j launchPath] : nil;
+    return exists(p) ? p : (exists([h objectForKey:@"launch"]) ? [h objectForKey:@"launch"] : nil);
+}
+
+static NSString *recordReveal(NSDictionary *h, GDInstallJob *j)
+{
+    NSString *p = j != nil ? [j revealPath] : nil;
+    if (exists(p))
+        return p;
+    if (exists([h objectForKey:@"reveal"]))
+        return [h objectForKey:@"reveal"];
+    return exists([h objectForKey:@"launch"]) ? [h objectForKey:@"launch"] : nil;
+}
+
+static BOOL recordFinished(NSDictionary *h)
+{
+    return [[h objectForKey:@"state"] isEqualToString:@"done"];
+}
+
 - (void) reload
 {
     GDInstaller *inst = [GDInstaller sharedInstaller];
-    NSArray *jobs = [inst jobs], *lib = [inst library];
+    NSArray *hist = [inst history], *lib = [inst library];
     float w = NSWidth([self bounds]), y = 16 + 40, h;
-    int i;
     unsigned k;
 
     for (k = 0; k < [controls count]; k++)
@@ -111,70 +167,68 @@
             [self button:@"Update All" at:NSMakeRect(w - MARGIN - BTN_W, 22, BTN_W, 24)
                   action:@selector(updateAll:) tag:0];
         for (k = 0; k < [ups count]; k++) {
-            NSRect r = NSMakeRect(MARGIN, y, w - 2 * MARGIN, ROW_H + 8);
+            NSRect r = NSMakeRect(MARGIN, y, w - 2 * MARGIN, UPD_H);
             GDInstallJob *j = [self updateJobAt:k];
             NSMutableArray *row = [NSMutableArray arrayWithObjects:@"update",
                                       [ups objectAtIndex:k], [NSValue valueWithRect:r], nil];
+            float bx = NSMaxX(r) - BTN_W - 6;
             if (j != nil) {
                 /* Being fetched now: the bar and Cancel, where Update was. */
-                NSProgressIndicator *bar = [[[NSProgressIndicator alloc] initWithFrame:
-                        NSMakeRect(r.origin.x + 84, y + 58, w - 2 * MARGIN - 200, 12)] autorelease];
-                [bar setStyle:NSProgressIndicatorBarStyle];
-                [bar setControlSize:NSSmallControlSize];
-                if ([j progress] < 0) {
-                    [bar setIndeterminate:YES];
-                    [bar startAnimation:nil];
-                } else {
-                    [bar setIndeterminate:NO];
-                    [bar setDoubleValue:[j progress] * 100];
-                }
-                [self addSubview:bar];
-                [controls addObject:bar];
-                [row addObject:bar];
-                [self button:@"Cancel" at:NSMakeRect(NSMaxX(r) - BTN_W - 6, y + 24, BTN_W, 24)
+                [row addObject:[self barFor:j at:NSMakeRect(r.origin.x + 84, y + 58,
+                                                            w - 2 * MARGIN - 200, 12)]];
+                [self button:@"Cancel" at:NSMakeRect(bx, y + 14, BTN_W, 22)
                       action:@selector(cancelUpdate:) tag:k];
             } else {
-                [self button:@"Update" at:NSMakeRect(NSMaxX(r) - BTN_W - 6, y + 24, BTN_W, 24)
+                [self button:@"Update" at:NSMakeRect(bx, y + 14, BTN_W, 22)
                       action:@selector(updateOne:) tag:k];
+                [self button:@"Ignore" at:NSMakeRect(bx, y + 40, BTN_W, 22)
+                      action:@selector(ignoreUpdate:) tag:k];
             }
             [rows addObject:row];
-            y += ROW_H + 16;
+            y += UPD_H + 16;
         }
         lib = [NSArray array];
-        jobs = [NSArray array];
+        hist = [NSArray array];
     }
 
-    if ([jobs count]) {
+    if ([hist count]) {
+        [self button:@"Clear" at:NSMakeRect(w - MARGIN - BTN_W, 22, BTN_W, 24)
+              action:@selector(clearDownloads:) tag:0];
         y += 4;
-        for (i = (int)[jobs count] - 1; i >= 0; i--) {
-            GDInstallJob *j = [jobs objectAtIndex:i];
+        for (k = 0; k < [hist count]; k++) {
+            NSDictionary *e = [hist objectAtIndex:k];
+            GDInstallJob *j = [inst jobForHistoryEntry:e];
             NSRect r = NSMakeRect(MARGIN, y, w - 2 * MARGIN, ROW_H);
-            NSMutableArray *row = [NSMutableArray arrayWithObjects:@"job", j, [NSValue valueWithRect:r], nil];
+            NSMutableArray *row = [NSMutableArray arrayWithObjects:@"past", e,
+                                      [NSValue valueWithRect:r], nil];
             float bx = NSMaxX(r) - BTN_W - 6;
-            if ([j isActive]) {
-                NSProgressIndicator *bar = [[[NSProgressIndicator alloc] initWithFrame:
-                                                NSMakeRect(r.origin.x + 84, y + 40, w - 2 * MARGIN - 200, 12)] autorelease];
-                [bar setStyle:NSProgressIndicatorBarStyle];
-                [bar setControlSize:NSSmallControlSize];
-                if ([j progress] < 0) {
-                    [bar setIndeterminate:YES];
-                    [bar startAnimation:nil];
-                } else {
-                    [bar setIndeterminate:NO];
-                    [bar setDoubleValue:[j progress] * 100];
-                }
-                [self addSubview:bar];
-                [controls addObject:bar];
-                [row addObject:bar];
-                [self button:@"Cancel" at:NSMakeRect(bx, y + 18, BTN_W, 24) action:@selector(cancelJob:) tag:i];
-            } else if ([j state] == GDJobDone) {
-                if ([j launchPath])
-                    [self button:@"Open" at:NSMakeRect(bx, y + 8, BTN_W, 24) action:@selector(openJob:) tag:i];
-                [self button:@"Show in Finder" at:NSMakeRect(bx, y + 34, BTN_W, 24) action:@selector(revealJob:) tag:i];
+            if (j != nil && [j isActive]) {
+                [row addObject:[self barFor:j at:NSMakeRect(r.origin.x + 84, y + 44,
+                                                            w - 2 * MARGIN - 200, 12)]];
+                [self button:@"Cancel" at:NSMakeRect(bx, y + 28, BTN_W, BTN_H)
+                      action:@selector(cancelPast:) tag:k];
+            } else if ([[e objectForKey:@"state"] isEqualToString:@"retrying"]) {
+                [row addObject:[self barFor:nil at:NSMakeRect(r.origin.x + 84, y + 44,
+                                                              w - 2 * MARGIN - 200, 12)]];
+            } else if (recordFinished(e)) {
+                int slot = 0;
+                if (recordLaunch(e, j))
+                    [self button:@"Open" at:NSMakeRect(bx, y + 6 + 22 * slot++, BTN_W, BTN_H)
+                          action:@selector(openPast:) tag:k];
+                if (recordReveal(e, j))
+                    [self button:@"Show in Finder" at:NSMakeRect(bx, y + 6 + 22 * slot++, BTN_W, BTN_H)
+                          action:@selector(revealPast:) tag:k];
+                [self button:@"Remove" at:NSMakeRect(bx, y + 6 + 22 * slot, BTN_W, BTN_H)
+                      action:@selector(removePast:) tag:k];
             } else {
-                [self button:@"Try Again" at:NSMakeRect(bx, y + 8, BTN_W, 24) action:@selector(retryJob:) tag:i];
-                if ([j revealPath])
-                    [self button:@"Show in Finder" at:NSMakeRect(bx, y + 34, BTN_W, 24) action:@selector(revealJob:) tag:i];
+                /* Failed, cancelled, or cut short by a crash: offer it again. */
+                [self button:@"Try Again" at:NSMakeRect(bx, y + 6, BTN_W, BTN_H)
+                      action:@selector(retryPast:) tag:k];
+                [self button:@"Remove" at:NSMakeRect(bx, y + 28, BTN_W, BTN_H)
+                      action:@selector(removePast:) tag:k];
+                if (recordReveal(e, j))
+                    [self button:@"Show in Finder" at:NSMakeRect(bx, y + 50, BTN_W, BTN_H)
+                          action:@selector(revealPast:) tag:k];
             }
             [rows addObject:row];
             y += ROW_H + 8;
@@ -195,7 +249,8 @@
             [dock setEnabled:![docked containsObject:launch]];
         }
         [self button:@"Show in Finder" at:NSMakeRect(bx, y + 44, BTN_W, 22) action:@selector(revealEntry:) tag:k];
-        [self button:@"Move to Trash" at:NSMakeRect(bx, y + 64, BTN_W, 22) action:@selector(trashEntry:) tag:k];
+        [self button:GDU("Remove\xE2\x80\xA6") at:NSMakeRect(bx, y + 64, BTN_W, 22)
+              action:@selector(removeEntry:) tag:k];
         [rows addObject:[NSArray arrayWithObjects:@"entry", e, [NSValue valueWithRect:r], nil]];
         y += ENTRY_H + 8;
     }
@@ -240,8 +295,6 @@ static NSRect titleRect(NSRect row)
 - (NSString *) pathForRow:(NSArray *)row
 {
     NSString *kind = [row objectAtIndex:0];
-    if ([kind isEqualToString:@"job"])
-        return [[[row objectAtIndex:1] item] path];
     if ([kind isEqualToString:@"update"])
         return [[[row objectAtIndex:1] objectForKey:@"entry"] objectForKey:@"path"];
     return [[row objectAtIndex:1] objectForKey:@"path"];
@@ -259,11 +312,35 @@ static NSRect titleRect(NSRect row)
     [NSGraphicsContext restoreGraphicsState];
 }
 
+/* What a past download's row says under the file name, and in what colour. */
+static NSString *pastLine(NSDictionary *h, GDInstallJob *j, NSColor **ink)
+{
+    NSString *state = [h objectForKey:@"state"];
+    if (j != nil && [j isActive]) {
+        *ink = GDSubtleTextColor();
+        return [j status];
+    }
+    if ([state isEqualToString:@"done"]) {
+        *ink = GDSubtleTextColor();
+        return [h objectForKey:@"status"] ?: @"Installed";
+    }
+    if ([state isEqualToString:@"retrying"]) {
+        *ink = GDSubtleTextColor();
+        return [h objectForKey:@"status"] ?: @"Trying again...";
+    }
+    *ink = GDBadgeColor(GDVerdictIncompatible);
+    if ([state isEqualToString:@"cancelled"])
+        return [h objectForKey:@"status"] ?: @"Cancelled";
+    if ([state isEqualToString:@"interrupted"])
+        return [h objectForKey:@"status"] ?: @"The Garden stopped before this finished.";
+    return [h objectForKey:@"status"] ?: @"This download did not finish.";
+}
+
 - (void) drawRect:(NSRect)dirty
 {
     GDInstaller *inst = [GDInstaller sharedInstaller];
     float w = NSWidth([self bounds]);
-    BOOL anyJobs = [[inst jobs] count] > 0, drewInstalledHead = NO;
+    BOOL anyPast = [[inst history] count] > 0, drewInstalledHead = NO;
     unsigned i;
 
     [GDBackgroundColor() set];
@@ -288,16 +365,9 @@ static NSRect titleRect(NSRect row)
             [[NSColor colorWithCalibratedWhite:0.86 alpha:1] set];
             [GDRoundRect(NSInsetRect(r, 0.5, 0.5), 6) stroke];
             if (icon)
-                GDDrawImageFitted(icon, NSMakeRect(r.origin.x + 16, r.origin.y + 12, 48, 48), NO);
+                GDDrawImageFitted(icon, NSMakeRect(r.origin.x + 12, r.origin.y + 12, 56, 56), NO);
             else
-                {
-                /* The installed program's own icon; the Garden screenshot if none. */
-                NSImage *icon = [inst iconForEntry:e];
-                if (icon)
-                    GDDrawImageFitted(icon, NSMakeRect(r.origin.x + 12, r.origin.y + 12, 56, 56), NO);
-                else
-                    [self drawThumb:[e objectForKey:@"thumb"] title:[e objectForKey:@"title"] in:thumbRect(r)];
-            }
+                [self drawThumb:[e objectForKey:@"thumb"] title:[e objectForKey:@"title"] in:thumbRect(r)];
             GDDrawText([e objectForKey:@"title"], titleRect(r), [NSFont boldSystemFontOfSize:12],
                        [NSColor blackColor], YES);
             [linkText() drawInRect:linkRect(r) withAttributes:linkAttrs()];
@@ -320,9 +390,9 @@ static NSRect titleRect(NSRect row)
         }
         return;
     }
-    GDDrawText(anyJobs ? @"Downloads" : @"Installed", NSMakeRect(MARGIN, 22, w - 2 * MARGIN, 26),
+    GDDrawText(anyPast ? @"Downloads" : @"Installed", NSMakeRect(MARGIN, 22, w - 2 * MARGIN, 26),
                [NSFont boldSystemFontOfSize:19], [NSColor blackColor], YES);
-    if (!anyJobs)
+    if (!anyPast)
         drewInstalledHead = YES;
 
     for (i = 0; i < [rows count]; i++) {
@@ -332,24 +402,35 @@ static NSRect titleRect(NSRect row)
         [GDRoundRect(r, 6) fill];
         [[NSColor colorWithCalibratedWhite:0.86 alpha:1] set];
         [GDRoundRect(NSInsetRect(r, 0.5, 0.5), 6) stroke];
-        if ([[row objectAtIndex:0] isEqualToString:@"job"]) {
-            GDInstallJob *j = [row objectAtIndex:1];
-            NSColor *c = [j state] == GDJobFailed ? GDBadgeColor(GDVerdictIncompatible) : GDSubtleTextColor();
-            [self drawThumb:[[j item] thumbURL] title:[[j item] title] in:thumbRect(r)];
-            GDDrawText([[j item] title], titleRect(r), [NSFont boldSystemFontOfSize:12], [NSColor blackColor], YES);
+        if ([[row objectAtIndex:0] isEqualToString:@"past"]) {
+            NSDictionary *e = [row objectAtIndex:1];
+            GDInstallJob *j = [self jobForRow:row];
+            NSColor *ink = GDSubtleTextColor();
+            NSString *line = pastLine(e, j, &ink);
+            BOOL busy = (j != nil && [j isActive]) ||
+                        [[e objectForKey:@"state"] isEqualToString:@"retrying"];
+            [self drawThumb:[e objectForKey:@"thumb"] title:[e objectForKey:@"title"] in:thumbRect(r)];
+            GDDrawText([e objectForKey:@"title"], titleRect(r), [NSFont boldSystemFontOfSize:12],
+                       [NSColor blackColor], YES);
             [linkText() drawInRect:linkRect(r) withAttributes:linkAttrs()];
-            GDDrawText([[j file] name], NSMakeRect(r.origin.x + 84, r.origin.y + 22, r.size.width - 200, 14),
+            GDDrawText([e objectForKey:@"file"], NSMakeRect(r.origin.x + 84, r.origin.y + 24,
+                                                           r.size.width - 200, 14),
                        [NSFont systemFontOfSize:10], GDSubtleTextColor(), YES);
-            if (![j isActive])
+            if (busy)
+                /* Under the bar. */
+                GDDrawText(line, NSMakeRect(r.origin.x + 84, r.origin.y + 58, r.size.width - 200, 12),
+                           [NSFont systemFontOfSize:9], ink, YES);
+            else {
                 /* No bar in the way: two lines, for a failure worth reading. */
-                GDDrawText([j status], NSMakeRect(r.origin.x + 84, r.origin.y + 38, r.size.width - 200, 26),
-                           [NSFont systemFontOfSize:10], c, NO);
-            else
-                /* Under the bar.  This used to test for GDJobDownloading, so
-                 * installing, verifying and unpacking - every active state that
-                 * is not a download - drew the status straight through it. */
-                GDDrawText([j status], NSMakeRect(r.origin.x + 84, r.origin.y + 52, r.size.width - 200, 12),
-                           [NSFont systemFontOfSize:9], c, YES);
+                GDDrawText(line, NSMakeRect(r.origin.x + 84, r.origin.y + 40, r.size.width - 200, 26),
+                           [NSFont systemFontOfSize:10], ink, NO);
+                if ([e objectForKey:@"date"])
+                    GDDrawText([[e objectForKey:@"date"]
+                                   descriptionWithCalendarFormat:@"%B %e, %Y at %I:%M %p"
+                                                        timeZone:nil locale:nil],
+                               NSMakeRect(r.origin.x + 84, r.origin.y + 68, r.size.width - 200, 14),
+                               [NSFont systemFontOfSize:9], GDSubtleTextColor(), YES);
+            }
         } else {
             NSDictionary *e = [row objectAtIndex:1];
             NSDate *d = [e objectForKey:@"date"];
@@ -443,35 +524,78 @@ static NSRect titleRect(NSRect row)
         [[GDInstaller sharedInstaller] cancel:j];
 }
 
-- (GDInstallJob *) jobFor:(id)sender
+- (NSDictionary *) recordFor:(id)sender
 {
-    NSArray *jobs = [[GDInstaller sharedInstaller] jobs];
+    NSArray *hist = [[GDInstaller sharedInstaller] history];
     int t = [sender tag];
-    return t < (int)[jobs count] ? [jobs objectAtIndex:t] : nil;
+    return t >= 0 && t < (int)[hist count] ? [hist objectAtIndex:t] : nil;
 }
 
 - (NSDictionary *) entryFor:(id)sender
 {
     NSArray *lib = [[GDInstaller sharedInstaller] library];
     int t = [sender tag];
-    return t < (int)[lib count] ? [lib objectAtIndex:t] : nil;
+    return t >= 0 && t < (int)[lib count] ? [lib objectAtIndex:t] : nil;
 }
 
-- (void) cancelJob:(id)s { [[GDInstaller sharedInstaller] cancel:[self jobFor:s]]; }
-- (void) retryJob:(id)s { [[GDInstaller sharedInstaller] retry:[self jobFor:s]]; }
-- (void) openJob:(id)s { [[NSWorkspace sharedWorkspace] openFile:[[self jobFor:s] launchPath]]; }
-- (void) revealJob:(id)s
+- (void) cancelPast:(id)s
 {
-    NSString *p = [[self jobFor:s] revealPath];
+    NSDictionary *h = [self recordFor:s];
+    GDInstallJob *j = h ? [[GDInstaller sharedInstaller] jobForHistoryEntry:h] : nil;
+    if (j != nil)
+        [[GDInstaller sharedInstaller] cancel:j];
+}
+
+- (void) retryPast:(id)s
+{
+    NSDictionary *h = [self recordFor:s];
+    if (h != nil)
+        [[GDInstaller sharedInstaller] retryHistoryEntry:h];
+}
+
+- (void) removePast:(id)s
+{
+    NSDictionary *h = [self recordFor:s];
+    if (h != nil)
+        [[GDInstaller sharedInstaller] removeHistoryEntry:h];
+}
+
+- (void) openPast:(id)s
+{
+    NSDictionary *h = [self recordFor:s];
+    NSString *p = h ? recordLaunch(h, [[GDInstaller sharedInstaller] jobForHistoryEntry:h]) : nil;
+    if (p == nil || ![[NSWorkspace sharedWorkspace] openFile:p])
+        NSBeep();
+}
+
+- (void) revealPast:(id)s
+{
+    NSDictionary *h = [self recordFor:s];
+    NSString *p = h ? recordReveal(h, [[GDInstaller sharedInstaller] jobForHistoryEntry:h]) : nil;
     if (p)
         [[NSWorkspace sharedWorkspace] selectFile:p inFileViewerRootedAtPath:@""];
 }
+
+/* "Clear" on the Downloads heading: the whole list but what is still running. */
+- (void) clearDownloads:(id)s
+{
+    [[GDInstaller sharedInstaller] clearHistory];
+}
+
 - (void) updateOne:(id)s
 {
     NSArray *ups = [[GDInstaller sharedInstaller] updates];
     int t = [s tag];
     if (t < (int)[ups count])
         [[GDInstaller sharedInstaller] installUpdate:[ups objectAtIndex:t]];
+}
+
+- (void) ignoreUpdate:(id)s
+{
+    NSArray *ups = [[GDInstaller sharedInstaller] updates];
+    int t = [s tag];
+    if (t < (int)[ups count])
+        [[GDInstaller sharedInstaller] ignoreUpdate:[ups objectAtIndex:t]];
 }
 
 - (void) updateAll:(id)s
@@ -508,17 +632,24 @@ static NSRect titleRect(NSRect row)
         [[NSWorkspace sharedWorkspace] selectFile:[p objectAtIndex:0] inFileViewerRootedAtPath:@""];
 }
 
-- (void) trashEntry:(id)s
+/* Two different things people want: get rid of the software, or just stop the
+ * store listing it (when the copy has been moved, or is wanted where it is). */
+- (void) removeEntry:(id)s
 {
     NSDictionary *e = [self entryFor:s];
     int r;
     if (e == nil)
         return;
-    r = NSRunAlertPanel([NSString stringWithFormat:@"Move \"%@\" to the Trash?", [e objectForKey:@"title"]],
-                        @"The installed copy is moved to the Trash. You can get it again from the Garden.",
-                        @"Move to Trash", @"Cancel", nil);
+    r = NSRunAlertPanel([NSString stringWithFormat:GDU("Remove \xE2\x80\x9C%@\xE2\x80\x9D?"),
+                            [e objectForKey:@"title"]],
+                        @"Moving it to the Trash removes the installed copy. Removing it from "
+                         "the Library only forgets it here and leaves the copy alone. Either "
+                         "way you can get it again from the Garden.",
+                        @"Move to Trash", @"Cancel", @"Remove from Library");
     if (r == NSAlertDefaultReturn)
         [[GDInstaller sharedInstaller] removeLibraryEntry:e moveToTrash:YES];
+    else if (r == NSAlertOtherReturn)
+        [[GDInstaller sharedInstaller] removeLibraryEntry:e moveToTrash:NO];
 }
 
 @end

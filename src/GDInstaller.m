@@ -242,7 +242,41 @@ static NSString *safeName(NSString *s)
 - (void) saveLibrary;
 - (NSString *) attachImage:(NSString *)p;
 - (void) repairLaunchPaths;
+- (void) recordJob:(GDInstallJob *)job;
+- (void) saveHistory;
+- (void) saveIgnored;
+- (NSMutableDictionary *) recordForKey:(NSString *)key;
+- (GDFile *) fileFromRecord:(NSDictionary *)h;
+- (GDItemDetail *) detailFromRecord:(NSDictionary *)h;
 @end
+
+/* How many past downloads to keep.  Only records nothing is working on are
+ * dropped, oldest first. */
+#define GD_HISTORY_MAX 40
+
+/* A record's identity, and the key an ignored update is remembered under.
+ * A file name is unique within an item, and neither part can hold a tab. */
+static NSString *gdKey(NSString *path, NSString *file)
+{
+    return [NSString stringWithFormat:@"%@\t%@", path ?: @"", file ?: @""];
+}
+
+static NSString *jobStateName(GDJobState s)
+{
+    switch (s) {
+    case GDJobDone:      return @"done";
+    case GDJobFailed:    return @"failed";
+    case GDJobCancelled: return @"cancelled";
+    default:             return @"downloading";    /* every state still running */
+    }
+}
+
+/* -setObject:forKey: with a nil object throws; most of a record is optional. */
+static void put(NSMutableDictionary *d, NSString *key, id value)
+{
+    if (value != nil)
+        [d setObject:value forKey:key];
+}
 
 @implementation GDInstaller
 
@@ -386,7 +420,7 @@ static int compareVersions(NSArray *a, NSArray *b)
          * it is not up to date until that has finished.  Once it has, the
          * library entry names the new file and there is nothing newer, so the
          * row leaves by itself. */
-        if (f)
+        if (f && ![self isUpdateIgnoredForPath:[e objectForKey:@"path"] file:[f name]])
             [u addObject:[NSDictionary dictionaryWithObjectsAndKeys:e, @"entry", f, @"file", d, @"detail", nil]];
     }
     if (![u isEqualToArray:updates]) {
@@ -405,6 +439,62 @@ static int compareVersions(NSArray *a, NSArray *b)
 }
 
 - (NSArray *) updates { return updates; }
+
+/* An item page has arrived.  If a retry was waiting for this one, it can go
+ * ahead now; either way the update list may have changed. */
+- (void) detailLoaded:(NSNotification *)n
+{
+    NSString *path = [n object];
+    if ([path isKindOfClass:[NSString class]] && [retrying containsObject:path]) {
+        NSArray *snapshot = [[history copy] autorelease];
+        unsigned i;
+        [retrying removeObject:path];
+        for (i = 0; i < [snapshot count]; i++) {
+            NSDictionary *h = [snapshot objectAtIndex:i];
+            if ([[h objectForKey:@"path"] isEqualToString:path] &&
+                [[h objectForKey:@"state"] isEqualToString:@"retrying"])
+                [self retryHistoryEntry:h];
+        }
+    }
+    [self recomputeUpdates:n];
+}
+
+/* ------------------------------------------------------- ignored updates */
+
+- (BOOL) isUpdateIgnoredForPath:(NSString *)path file:(NSString *)name
+{
+    return [ignored containsObject:gdKey(path, name)];
+}
+
+- (void) ignoreUpdate:(NSDictionary *)u
+{
+    NSDictionary *e = [u objectForKey:@"entry"];
+    GDFile *f = [u objectForKey:@"file"];
+    NSString *k;
+    if (e == nil || f == nil)
+        return;
+    k = gdKey([e objectForKey:@"path"], [f name]);
+    if (![ignored containsObject:k])
+        [ignored addObject:k];
+    [self saveIgnored];
+    [self recomputeUpdates:nil];
+}
+
+- (unsigned) ignoredUpdateCount { return (unsigned)[ignored count]; }
+
+- (void) clearIgnoredUpdates
+{
+    if ([ignored count] == 0)
+        return;
+    [ignored removeAllObjects];
+    [self saveIgnored];
+    [self recomputeUpdates:nil];
+}
+
+- (void) saveIgnored
+{
+    [[NSUserDefaults standardUserDefaults] setObject:ignored forKey:@"GDIgnoredUpdates"];
+}
 
 - (GDInstallJob *) installUpdate:(NSDictionary *)u
 {
@@ -499,8 +589,36 @@ static int compareVersions(NSArray *a, NSArray *b)
     speeds = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"GDMirrorSpeeds"] mutableCopy]
              ?: [[NSMutableDictionary alloc] init];
     updates = [[NSMutableArray alloc] init];
+    retrying = [[NSMutableSet alloc] init];
+    ignored = [[[NSUserDefaults standardUserDefaults] arrayForKey:@"GDIgnoredUpdates"] mutableCopy]
+              ?: [[NSMutableArray alloc] init];
+    historyPath = [[dir stringByAppendingPathComponent:@"History.plist"] retain];
+    {
+        /* Records are mutable from here on; a plist read gives immutable ones.
+         * Anything still marked as downloading belongs to a run that never got
+         * to finish - the app crashed, or was killed - so it is offered as an
+         * interrupted download that can be tried again. */
+        NSArray *saved = [NSArray arrayWithContentsOfFile:historyPath];
+        unsigned i;
+        BOOL repaired = NO;
+        history = [[NSMutableArray alloc] init];
+        for (i = 0; i < [saved count]; i++) {
+            NSMutableDictionary *h = [[[saved objectAtIndex:i] mutableCopy] autorelease];
+            if (![h isKindOfClass:[NSDictionary class]] || [h objectForKey:@"key"] == nil)
+                continue;
+            if ([[h objectForKey:@"state"] isEqualToString:@"downloading"] ||
+                [[h objectForKey:@"state"] isEqualToString:@"retrying"]) {
+                [h setObject:@"interrupted" forKey:@"state"];
+                [h setObject:@"The Garden stopped before this finished." forKey:@"status"];
+                repaired = YES;
+            }
+            [history addObject:h];
+        }
+        if (repaired)
+            [self saveHistory];
+    }
     [self repairLaunchPaths];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(recomputeUpdates:)
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(detailLoaded:)
                                                  name:GDDetailLoadedNotification object:nil];
     return self;
 }
@@ -576,6 +694,238 @@ static int compareVersions(NSArray *a, NSArray *b)
     [self saveLibrary];
 }
 
+/* ------------------------------------------------------ download history */
+
+- (NSArray *) history { return history; }
+
+- (NSMutableDictionary *) recordForKey:(NSString *)key
+{
+    unsigned i;
+    for (i = 0; i < [history count]; i++) {
+        NSMutableDictionary *h = [history objectAtIndex:i];
+        if ([[h objectForKey:@"key"] isEqualToString:key])
+            return h;
+    }
+    return nil;
+}
+
+- (GDInstallJob *) jobForHistoryEntry:(NSDictionary *)h
+{
+    NSString *key = [h objectForKey:@"key"];
+    int i;
+    if (key == nil)
+        return nil;
+    for (i = (int)[jobs count] - 1; i >= 0; i--) {
+        GDInstallJob *j = [jobs objectAtIndex:i];
+        if (j->item != nil && j->file != nil &&
+            [gdKey([j->item path], [j->file name]) isEqualToString:key])
+            return j;
+    }
+    return nil;
+}
+
+/* Being worked on right now: the row cannot be removed, and the record must
+ * not be dropped to make room. */
+- (BOOL) isRecordBusy:(NSDictionary *)h
+{
+    GDInstallJob *j = [self jobForHistoryEntry:h];
+    if (j != nil && [j isActive])
+        return YES;
+    return [[h objectForKey:@"state"] isEqualToString:@"retrying"];
+}
+
+- (void) saveHistory
+{
+    /* A cap, so a copy kept for years does not grow without end. */
+    while ([history count] > GD_HISTORY_MAX) {
+        int i, drop = -1;
+        for (i = (int)[history count] - 1; i >= 0; i--)
+            if (![self isRecordBusy:[history objectAtIndex:i]]) {
+                drop = i;
+                break;
+            }
+        if (drop < 0)
+            break;
+        [history removeObjectAtIndex:drop];
+    }
+    [history writeToFile:historyPath atomically:YES];
+}
+
+/* The record for a job: made the first time, kept in step after that.  It is
+ * written out at each change, because the whole point is to still be there
+ * when this run of the app is not. */
+- (void) recordJob:(GDInstallJob *)job
+{
+    NSMutableDictionary *h;
+    NSString *key;
+
+    if (job == nil || job->item == nil || job->file == nil)
+        return;
+    key = gdKey([job->item path], [job->file name]);
+    h = [self recordForKey:key];
+    if (h == nil) {
+        h = [NSMutableDictionary dictionary];
+        [h setObject:key forKey:@"key"];
+        [history insertObject:h atIndex:0];
+    } else if ([history objectAtIndex:0] != h) {
+        /* Newest first: whatever was just worked on goes to the top. */
+        [[h retain] autorelease];
+        [history removeObject:h];
+        [history insertObject:h atIndex:0];
+    }
+    put(h, @"path", [job->item path]);
+    put(h, @"title", [job->item title]);
+    put(h, @"thumb", [job->item thumbURL]);
+    put(h, @"arch", [job->item architecture]);
+    put(h, @"file", [job->file name]);
+    put(h, @"size", [job->file sizeText]);
+    put(h, @"sizeBytes", [NSNumber numberWithDouble:[job->file sizeBytes]]);
+    put(h, @"fileDate", [job->file date]);
+    put(h, @"md5", [job->file md5]);
+    put(h, @"systems", [job->file systems]);
+    put(h, @"mirrors", [job->file mirrors]);
+    put(h, @"verdict", [NSNumber numberWithInt:job->verdict]);
+    put(h, @"state", jobStateName(job->state));
+    put(h, @"status", job->status);
+    put(h, @"date", [NSDate date]);
+    put(h, @"bytesDone", [NSNumber numberWithLongLong:job->bytesDone]);
+    put(h, @"bytesTotal", [NSNumber numberWithLongLong:job->bytesTotal]);
+    put(h, @"launch", job->launchPath);
+    put(h, @"reveal", job->revealPath);
+    [self saveHistory];
+}
+
+- (void) setRecordForKey:(NSString *)key state:(NSString *)st status:(NSString *)text
+{
+    NSMutableDictionary *h = [self recordForKey:key];
+    if (h == nil)
+        return;
+    put(h, @"state", st);
+    put(h, @"status", text);
+    put(h, @"date", [NSDate date]);
+    [self saveHistory];
+    [[NSNotificationCenter defaultCenter] postNotificationName:GDLibraryChangedNotification object:self];
+}
+
+/* The file as the page described it when it was asked for.  Used when the item
+ * page cannot be had again - the mirrors were saved with the record, so a
+ * download interrupted days ago can still be resumed offline from the site. */
+- (GDFile *) fileFromRecord:(NSDictionary *)h
+{
+    GDFile *f;
+    if ([[h objectForKey:@"mirrors"] count] == 0 || [h objectForKey:@"file"] == nil)
+        return nil;
+    f = [[[GDFile alloc] init] autorelease];
+    f->name = [[h objectForKey:@"file"] copy];
+    f->sizeText = [[h objectForKey:@"size"] copy];
+    f->sizeBytes = [[h objectForKey:@"sizeBytes"] doubleValue];
+    f->date = [[h objectForKey:@"fileDate"] copy];
+    f->md5 = [[h objectForKey:@"md5"] copy];
+    f->systems = [[h objectForKey:@"systems"] copy];
+    f->mirrors = [[h objectForKey:@"mirrors"] copy];
+    return f;
+}
+
+- (GDItemDetail *) detailFromRecord:(NSDictionary *)h
+{
+    GDItemDetail *d = [[[GDItemDetail alloc] init] autorelease];
+    NSArray *parts = [([h objectForKey:@"path"] ?: @"") pathComponents];
+    NSString *section = [parts count] > 1 ? [parts objectAtIndex:1] : @"apps";
+    NSString *slug = [parts count] > 2 ? [parts objectAtIndex:2] : @"";
+    d->section = [section copy];
+    d->slug = [slug copy];
+    d->title = [([h objectForKey:@"title"] ?: @"") copy];
+    d->thumbURL = [[h objectForKey:@"thumb"] copy];
+    d->architecture = [[h objectForKey:@"arch"] copy];
+    return d;
+}
+
+static GDFile *fileNamed(NSString *name, GDItemDetail *d)
+{
+    unsigned i;
+    for (i = 0; i < [[d files] count]; i++)
+        if ([[[[d files] objectAtIndex:i] name] isEqualToString:name])
+            return [[d files] objectAtIndex:i];
+    return nil;
+}
+
+- (void) retryHistoryEntry:(NSDictionary *)h
+{
+    GDInstallJob *live = [self jobForHistoryEntry:h];
+    NSString *key = [h objectForKey:@"key"], *path = [h objectForKey:@"path"];
+    GDItemDetail *d;
+    GDFile *f;
+    BOOL waited;
+
+    if (live != nil) {
+        /* Still this run: the job knows where it got to, and resumes. */
+        if (![live isActive])
+            [self retry:live];
+        return;
+    }
+    /* A record from an earlier run.  Ask for the item page first, so the
+     * download links are fresh ones; the saved mirrors are the fallback. */
+    waited = [[h objectForKey:@"state"] isEqualToString:@"retrying"];
+    d = [path length] ? [[GDCatalog sharedCatalog] detailForPath:path] : nil;
+    if (d == nil && !waited) {
+        [retrying addObject:path];
+        [self setRecordForKey:key state:@"retrying" status:@"Looking up the item page..."];
+        return;
+    }
+    f = d != nil ? fileNamed([h objectForKey:@"file"], d) : nil;
+    if (f == nil) {
+        f = [self fileFromRecord:h];
+        if (d == nil)
+            d = [self detailFromRecord:h];
+    }
+    if (f == nil) {
+        [self setRecordForKey:key state:@"failed"
+                       status:@"This file is no longer listed on its Garden page."];
+        return;
+    }
+    [self installFile:f ofItem:d];
+    [[NSNotificationCenter defaultCenter] postNotificationName:GDLibraryChangedNotification object:self];
+}
+
+- (void) removeHistoryEntry:(NSDictionary *)h
+{
+    GDInstallJob *j;
+    if ([self isRecordBusy:h])
+        return;                        /* cancel it first */
+    j = [self jobForHistoryEntry:h];
+    if (j != nil)
+        [jobs removeObject:j];
+    [retrying removeObject:[h objectForKey:@"path"] ?: @""];
+    [history removeObject:h];
+    [self saveHistory];
+    [self changed:nil];
+    [[NSNotificationCenter defaultCenter] postNotificationName:GDLibraryChangedNotification object:self];
+}
+
+- (void) clearHistory
+{
+    int i;
+    for (i = (int)[history count] - 1; i >= 0; i--) {
+        NSDictionary *h = [history objectAtIndex:i];
+        GDInstallJob *j;
+        if ([self isRecordBusy:h])
+            continue;
+        j = [self jobForHistoryEntry:h];
+        if (j != nil)
+            [jobs removeObject:j];
+        [history removeObjectAtIndex:i];
+    }
+    /* Jobs with no record of their own (nothing should be left) go too. */
+    for (i = (int)[jobs count] - 1; i >= 0; i--)
+        if (![[jobs objectAtIndex:i] isActive])
+            [jobs removeObjectAtIndex:i];
+    [self saveHistory];
+    [self changed:nil];
+    [[NSNotificationCenter defaultCenter] postNotificationName:GDLibraryChangedNotification object:self];
+}
+
+/* ---------------------------------------------------------------- jobs */
+
 - (void) changed:(GDInstallJob *)job
 {
     [[NSNotificationCenter defaultCenter] postNotificationName:GDJobChangedNotification object:job];
@@ -586,6 +936,7 @@ static int compareVersions(NSArray *a, NSArray *b)
     job->state = s;
     [job->status autorelease];
     job->status = [text copy];
+    [self recordJob:job];
     [self changed:job];
 }
 
@@ -674,6 +1025,9 @@ static NSString *megabytes(double b)
     if ([self libraryEntryForPath:[d path]])
         job->replaces = [[[self libraryEntryForPath:[d path]] objectForKey:@"installed"] copy];
     [jobs addObject:job];
+    /* On the list before a byte moves, so an attempt that goes nowhere - or
+     * that the app does not outlive - is still an attempt the user can see. */
+    [self recordJob:job];
 
     /* Room for the download, what it expands to, and the installed copy. */
     fs = [[NSFileManager defaultManager] fileSystemAttributesAtPath:job->workDir];
