@@ -1136,7 +1136,17 @@ static NSString *megabytes(double b)
         [self noteSpeed:rate host:[[r url] host]];
         [r cancel];
     }
-    [self changed:job];
+    /* The bytes arrive in small chunks, many times a second, and every one of
+     * them used to be a notification.  Each notification has the item page
+     * lay itself out again, the Library reload and the Dock icon redraw, so a
+     * download could take the whole main thread on a slower Mac and leave the
+     * window unable to answer its own close button.  Five a second is more
+     * than an eye can follow; the state changes around it still go out whole.
+     */
+    if (now - job->lastProgressPost >= 0.2 || (total > 0 && done >= total)) {
+        job->lastProgressPost = now;
+        [self changed:job];
+    }
 }
 
 - (void) httpRequestDidFinish:(GDHTTPRequest *)r

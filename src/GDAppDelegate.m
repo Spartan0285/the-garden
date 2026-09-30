@@ -216,7 +216,6 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
      * up again once that run is gone. */
     if ([d boolForKey:@"GDDebugRetry"] && ticks == 4 &&
         [[[GDInstaller sharedInstaller] history] count]) {
-        [store showLibrary:nil];
         [[GDInstaller sharedInstaller]
             retryHistoryEntry:[[[GDInstaller sharedInstaller] history] objectAtIndex:0]];
         debugQuiet = 0;

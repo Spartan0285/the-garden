@@ -54,6 +54,7 @@ typedef enum {
     NSArray *mirrorOrder;      /* fastest known first */
     int attempts;              /* on the current mirror */
     double attemptStart;
+    double lastProgressPost;   /* when a progress tick last became a notification */
     long long attemptBytes;    /* bytesDone when this attempt began */
     BOOL switchingMirror;      /* cancelled on purpose: too slow */
     BOOL reusedDownload;       /* the whole file was already on disk */

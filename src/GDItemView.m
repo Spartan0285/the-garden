@@ -48,6 +48,9 @@ static float textHeight(NSString *s, NSFont *f, float w)
     fileButtons = [[NSMutableArray alloc] init];
     extraRequests = [[NSMutableArray alloc] init];
     links = [[NSMutableArray alloc] init];
+    /* Not 0: that is GDJobQueued, and a zeroed ivar would read as "already
+     * laid out for a queued job" before the first rebuild. */
+    lastJobState = -1;
     [self setAutoresizingMask:NSViewWidthSizable];
 
     getButton = [[NSButton alloc] initWithFrame:NSMakeRect(LEFT_X, 0, LEFT_W, 32)];
@@ -132,11 +135,28 @@ static float textHeight(NSString *s, NSFont *f, float w)
 }
 
 - (void) imageLoaded:(NSNotification *)n { [self setNeedsDisplay:YES]; }
+
 - (void) jobChanged:(NSNotification *)n
 {
     GDInstallJob *j = [n object];
-    if (j == nil || ![j isKindOfClass:[GDInstallJob class]] || [[[j item] path] isEqualToString:path])
-        [self rebuild];
+    BOOL isJob = [j isKindOfClass:[GDInstallJob class]];
+    BOOL mine = isJob && [[[j item] path] isEqualToString:path];
+
+    if (isJob && !mine)
+        return;                 /* some other page's download */
+    /* Progress on this page's own download, with nothing else changed: move
+     * the bar and repaint the line that says how it is going.  Rebuilding
+     * here laid the whole page out again for every chunk that arrived. */
+    if (mine && [j isActive] && (int)[j state] == lastJobState && ![bar isHidden]) {
+        if ([j progress] >= 0) {
+            [bar setIndeterminate:NO];
+            [bar setDoubleValue:[j progress] * 100];
+        }
+        if (!NSIsEmptyRect(statusRect))
+            [self setNeedsDisplayInRect:statusRect];
+        return;
+    }
+    [self rebuild];
 }
 
 - (float) rightWidth
@@ -152,6 +172,8 @@ static float textHeight(NSString *s, NSFont *f, float w)
     NSDictionary *entry = [inst libraryEntryForPath:path];
     GDFile *best = nil;
     GDVerdict v = detail ? [GDCompat verdictForItem:detail bestFile:&best] : GDVerdictUnknown;
+
+    lastJobState = job != nil ? (int)[job state] : -1;
     NSMutableAttributedString *desc;
     float rw = [self rightWidth], y, h;
     unsigned i;
@@ -304,8 +326,10 @@ static float textHeight(NSString *s, NSFont *f, float w)
     }
     {
         GDInstallJob *job = [[GDInstaller sharedInstaller] jobForItemPath:path];
+        statusRect = NSZeroRect;
         if (job && ([job isActive] || [job state] == GDJobFailed)) {
-            GDDrawText([job status], NSMakeRect(LEFT_X, y, LEFT_W, 44), [NSFont systemFontOfSize:10],
+            statusRect = NSMakeRect(LEFT_X, y, LEFT_W, 44);
+            GDDrawText([job status], statusRect, [NSFont systemFontOfSize:10],
                        [job state] == GDJobFailed ? GDBadgeColor(GDVerdictIncompatible) : GDSubtleTextColor(), NO);
             y += 46;
         }

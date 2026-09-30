@@ -30,6 +30,8 @@
     NSButton *getButton;
     NSPopUpButton *getMenu;     /* the downloads, when there is a choice */
     NSProgressIndicator *bar;
+    int lastJobState;           /* the state the page was last laid out for */
+    NSRect statusRect;          /* where the job's status line is drawn */
     NSMutableArray *fileButtons;
     float descHeight;
 
