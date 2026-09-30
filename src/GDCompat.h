@@ -34,6 +34,9 @@ typedef enum {                /* ordered worst .. best */
 + (NSString *) emulatorPathForItem:(GDItemDetail *)d;
 + (GDVerdict) verdictForItem:(GDItemDetail *)d bestFile:(GDFile **)best;
 
+/* Every verdict, best first: the filter menu and the welcome legend both
+ * walk this rather than repeating the list. */
++ (NSArray *) allVerdicts;                 /* NSNumber of GDVerdict */
 + (NSString *) shortLabel:(GDVerdict)v;    /* badge text */
 + (NSString *) explanation:(GDVerdict)v;   /* one sentence */
 + (BOOL) runsHere:(GDVerdict)v;            /* shown under "Runs on this Mac" */

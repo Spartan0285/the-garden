@@ -418,19 +418,23 @@ static float textHeight(NSString *s, NSFont *f, float w)
         [GDRoundRect(row, 6) fill];
         [[NSColor colorWithCalibratedWhite:0.86 alpha:1] set];
         [GDRoundRect(NSInsetRect(row, 0.5, 0.5), 6) stroke];
-        GDDrawText([f name], NSMakeRect(row.origin.x + 10, y + 6, rw - 200, 16),
+        /* The badge column has to clear the Get button, which starts 98 points
+         * in from the row's right edge.  "Compatible with Mac OS X" is half as
+         * wide again as "Runs on this Mac" was, so the column starts further
+         * left and the file's own text gives up the difference. */
+        GDDrawText([f name], NSMakeRect(row.origin.x + 10, y + 6, rw - 300, 16),
                    [NSFont boldSystemFontOfSize:11], [NSColor blackColor], YES);
-        GDDrawText(meta, NSMakeRect(row.origin.x + 10, y + 22, rw - 200, 14),
+        GDDrawText(meta, NSMakeRect(row.origin.x + 10, y + 22, rw - 300, 14),
                    [NSFont systemFontOfSize:10], GDSubtleTextColor(), YES);
         GDDrawText([f systems] ? [@"For " stringByAppendingString:[f systems]] : @"",
-                   NSMakeRect(row.origin.x + 10, y + 36, rw - 200, 14),
+                   NSMakeRect(row.origin.x + 10, y + 36, rw - 300, 14),
                    [NSFont systemFontOfSize:10], GDSubtleTextColor(), YES);
-        GDDrawBadge(NSMakeRect(NSMaxX(row) - 196, y + 15, 112, 14), fv, YES);
+        GDDrawBadge(NSMakeRect(NSMaxX(row) - 290, y + 15, 180, 14), fv, YES);
         if (installedFile && [[f name] isEqualToString:installedFile])
-            GDDrawText(GDU("\xE2\x9C\x93 Installed"), NSMakeRect(NSMaxX(row) - 196, y + 32, 112, 12),
+            GDDrawText(GDU("\xE2\x9C\x93 Installed"), NSMakeRect(NSMaxX(row) - 290, y + 32, 180, 12),
                        [NSFont boldSystemFontOfSize:9], GDBadgeColor(GDVerdictNative), YES);
         else if (f == best && i > 0)
-            GDDrawText(@"best match", NSMakeRect(NSMaxX(row) - 196, y + 32, 112, 12),
+            GDDrawText(@"best match", NSMakeRect(NSMaxX(row) - 290, y + 32, 180, 12),
                        [NSFont systemFontOfSize:9], GDSubtleTextColor(), YES);
         y += 62;
     }

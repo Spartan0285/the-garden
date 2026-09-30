@@ -47,7 +47,7 @@ enum { HitItem, HitCategory, HitMore, HitSeeAll, HitLetter };
     if ((self = [super initWithFrame:f]) != nil) {
         shelves = [[NSMutableArray alloc] init];
         hits = [[NSMutableArray alloc] init];
-        onlyRunnable = YES;
+        hiddenVerdicts = [[NSSet alloc] init];
         [self setAutoresizingMask:NSViewWidthSizable];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(modelChanged:)
                                                      name:GDDetailLoadedNotification object:nil];
@@ -61,6 +61,7 @@ enum { HitItem, HitCategory, HitMore, HitSeeAll, HitLetter };
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [shelves release];
+    [hiddenVerdicts release];
     [hits release];
     [message release];
     [super dealloc];
@@ -77,17 +78,24 @@ enum { HitItem, HitCategory, HitMore, HitSeeAll, HitLetter };
         [shelves setArray:[[s copy] autorelease]];
     [self reload];
 }
-- (void) setOnlyRunnable:(BOOL)f { onlyRunnable = f; [self reload]; }
+- (void) setHiddenVerdicts:(NSSet *)s
+{
+    [hiddenVerdicts autorelease];
+    hiddenVerdicts = [s copy];
+    [self reload];
+}
 - (void) setMessage:(NSString *)m { [message autorelease]; message = [m copy]; [self reload]; }
 
 - (BOOL) showsEntry:(id)e
 {
     BOOL known;
     GDVerdict v;
-    if (!onlyRunnable || ![e isKindOfClass:[GDItem class]])
+    if ([hiddenVerdicts count] == 0 || ![e isKindOfClass:[GDItem class]])
         return YES;
     v = [[GDCatalog sharedCatalog] verdictForPath:[e path] known:&known];
-    return !known || [GDCompat runsHere:v];
+    /* Still being worked out: leave it in rather than have tiles disappear
+     * from under the reader as the answers arrive. */
+    return !known || ![hiddenVerdicts containsObject:[NSNumber numberWithInt:(int)v]];
 }
 
 - (int) columns
@@ -176,7 +184,10 @@ enum { HitItem, HitCategory, HitMore, HitSeeAll, HitLetter };
         }
 
         if ([vis count] == 0 && !sh->loading && draw) {
-            GDDrawText([sh->entries count] ? @"Nothing here runs on this Mac. Turn off \"Runs on This Mac\" in the View menu to see everything."
+            /* Hidden by the reader's own badge filters, not necessarily by
+             * anything about this Mac: say so, and name the way back. */
+            GDDrawText([sh->entries count] ? @"Everything here carries a badge you have hidden. "
+                                              "Choose \"Show Every Badge\" in the View menu to see it all."
                                            : @"Nothing found.",
                        NSMakeRect(MARGIN, y + 8, width - 2 * MARGIN, 32),
                        [NSFont systemFontOfSize:12], GDSubtleTextColor(), NO);
@@ -306,7 +317,7 @@ enum { HitItem, HitCategory, HitMore, HitSeeAll, HitLetter };
 - (void) autoFill
 {
     unsigned s, i;
-    if (!onlyRunnable)
+    if ([hiddenVerdicts count] == 0)
         return;
     for (s = 0; s < [shelves count]; s++) {
         GDShelf *sh = [shelves objectAtIndex:s];
@@ -319,7 +330,7 @@ enum { HitItem, HitCategory, HitMore, HitSeeAll, HitLetter };
                                                               known:&known];
             if (!known)
                 unknown++;
-            else if ([GDCompat runsHere:v])
+            else if (![hiddenVerdicts containsObject:[NSNumber numberWithInt:(int)v]])
                 visible++;
         }
         pulled = [[sh->state objectForKey:@"autoPulled"] intValue];

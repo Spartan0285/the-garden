@@ -100,14 +100,30 @@ NSColor *GDBadgeColor(GDVerdict v)
 void GDDrawBadge(NSRect r, GDVerdict v, BOOL known)
 {
     NSString *t = known ? [GDCompat shortLabel:v] : @"Checking...";
-    NSDictionary *a = [NSDictionary dictionaryWithObjectsAndKeys:
-                          [NSFont boldSystemFontOfSize:9], NSFontAttributeName,
-                          [NSColor whiteColor], NSForegroundColorAttributeName, nil];
-    NSSize s = [t sizeWithAttributes:a];
-    NSRect pill = NSMakeRect(r.origin.x, r.origin.y, MIN(s.width + 12, r.size.width), r.size.height);
+    NSDictionary *a = nil;
+    NSSize s;
+    NSRect pill;
+    float size;
+
+    /* These labels say "Compatible with Mac OS X" rather than "Runs on this
+     * Mac", which is longer than some of the places a badge is drawn - a mini
+     * tile in a shelf is 124 points wide.  Take a smaller type size rather
+     * than spill the text out of its pill, and clip if even that will not do. */
+    for (size = 9; size >= 7.5; size -= 0.5) {
+        a = [NSDictionary dictionaryWithObjectsAndKeys:
+                [NSFont boldSystemFontOfSize:size], NSFontAttributeName,
+                [NSColor whiteColor], NSForegroundColorAttributeName, nil];
+        s = [t sizeWithAttributes:a];
+        if (s.width + 12 <= r.size.width)
+            break;
+    }
+    pill = NSMakeRect(r.origin.x, r.origin.y, MIN(s.width + 12, r.size.width), r.size.height);
     [(known ? GDBadgeColor(v) : [NSColor colorWithCalibratedWhite:0.72 alpha:1]) set];
     [GDRoundRect(pill, r.size.height / 2) fill];
+    [NSGraphicsContext saveGraphicsState];
+    [NSBezierPath clipRect:NSInsetRect(pill, 3, 0)];
     [t drawAtPoint:NSMakePoint(pill.origin.x + 6, NSMidY(pill) - s.height / 2) withAttributes:a];
+    [NSGraphicsContext restoreGraphicsState];
 }
 
 void GDDrawImageFitted(NSImage *img, NSRect r, BOOL fill)

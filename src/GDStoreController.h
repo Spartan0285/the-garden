@@ -23,7 +23,7 @@
     NSMutableArray *requests;   /* in flight for the current page */
     NSString *searchToken;
     NSWindow *shotWindow;
-    BOOL onlyRunnable;
+    NSMutableSet *hiddenVerdicts;   /* GDVerdict NSNumbers hidden from listings */
     NSImage *dockIcon;
     double lastDockDraw;
     BOOL dockDrawn;
@@ -46,7 +46,9 @@
 - (IBAction) showUpdates:(id)sender;
 - (IBAction) focusSearch:(id)sender;
 - (IBAction) reloadPage:(id)sender;
-- (IBAction) toggleOnlyRunnable:(id)sender;
+- (IBAction) toggleOnlyRunnable:(id)sender;   /* the "only what runs here" preset */
+- (IBAction) toggleVerdictFilter:(id)sender;  /* one badge; the sender's tag is the verdict */
+- (IBAction) showAllBadges:(id)sender;
 - (IBAction) viewOnSite:(id)sender;
-- (BOOL) onlyRunnable;
+- (BOOL) isVerdictHidden:(int)v;
 @end

@@ -43,10 +43,33 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
     /* Most of the Garden is Mac OS 9 software.  Where Classic can run it the
      * store filters to what runs; elsewhere the filter would leave little,
      * so everything is shown with its badge unless the user asks. */
-    if ([[NSUserDefaults standardUserDefaults] objectForKey:@"GDOnlyRunnable"])
-        onlyRunnable = [[NSUserDefaults standardUserDefaults] boolForKey:@"GDOnlyRunnable"];
-    else
-        onlyRunnable = [GDCompat hostHasClassic];
+    hiddenVerdicts = [[NSMutableSet alloc] init];
+    {
+        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+        NSArray *saved = [d arrayForKey:@"GDHiddenVerdicts"];
+        if (saved != nil) {
+            /* Through -intValue, so a plist edited by hand - or written with
+             * "defaults write ... -array 4", which stores strings - still
+             * matches the numbers this set is compared against. */
+            unsigned i;
+            for (i = 0; i < [saved count]; i++)
+                [hiddenVerdicts addObject:
+                    [NSNumber numberWithInt:[[saved objectAtIndex:i] intValue]]];
+        } else {
+            /* First run under this version: carry over whatever the single
+             * "only what runs here" switch said, so nobody's listings change
+             * under them. */
+            BOOL only = [d objectForKey:@"GDOnlyRunnable"]
+                            ? [d boolForKey:@"GDOnlyRunnable"] : [GDCompat hostHasClassic];
+            if (only) {
+                NSArray *all = [GDCompat allVerdicts];
+                unsigned i;
+                for (i = 0; i < [all count]; i++)
+                    if (![GDCompat runsHere:(GDVerdict)[[all objectAtIndex:i] intValue]])
+                        [hiddenVerdicts addObject:[all objectAtIndex:i]];
+            }
+        }
+    }
 
     window = [[NSWindow alloc] initWithContentRect:frame
                                          styleMask:NSTitledWindowMask | NSClosableWindowMask |
@@ -269,7 +292,7 @@ enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
 {
     GDGridView *g = [[[GDGridView alloc] initWithFrame:[[scroll contentView] bounds]] autorelease];
     [g setDelegate:self];
-    [g setOnlyRunnable:onlyRunnable];
+    [g setHiddenVerdicts:hiddenVerdicts];
     return g;
 }
 
@@ -446,20 +469,71 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
 }
 - (IBAction) focusSearch:(id)s { [window makeFirstResponder:searchField]; }
 - (IBAction) reloadPage:(id)s { if (page) [self show:page]; }
-- (BOOL) onlyRunnable { return onlyRunnable; }
+- (BOOL) isVerdictHidden:(int)v
+{
+    return [hiddenVerdicts containsObject:[NSNumber numberWithInt:v]];
+}
 
+/* One place to save the set and put it to work on the page on screen. */
+- (void) filtersChanged
+{
+    [[NSUserDefaults standardUserDefaults] setObject:[hiddenVerdicts allObjects]
+                                              forKey:@"GDHiddenVerdicts"];
+    if ([pageView isKindOfClass:[GDGridView class]])
+        [(GDGridView *)pageView setHiddenVerdicts:hiddenVerdicts];
+}
+
+/* The preset: hide everything that will not run here, or show the lot. */
 - (IBAction) toggleOnlyRunnable:(id)sender
 {
-    onlyRunnable = !onlyRunnable;
-    [[NSUserDefaults standardUserDefaults] setBool:onlyRunnable forKey:@"GDOnlyRunnable"];
-    if ([pageView isKindOfClass:[GDGridView class]])
-        [(GDGridView *)pageView setOnlyRunnable:onlyRunnable];
+    NSArray *all = [GDCompat allVerdicts];
+    BOOL only = [hiddenVerdicts count] == 0;
+    unsigned i;
+    [hiddenVerdicts removeAllObjects];
+    if (only)
+        for (i = 0; i < [all count]; i++)
+            if (![GDCompat runsHere:(GDVerdict)[[all objectAtIndex:i] intValue]])
+                [hiddenVerdicts addObject:[all objectAtIndex:i]];
+    [self filtersChanged];
+}
+
+- (IBAction) toggleVerdictFilter:(id)sender
+{
+    NSNumber *v = [NSNumber numberWithInt:(int)[sender tag]];
+    if ([hiddenVerdicts containsObject:v])
+        [hiddenVerdicts removeObject:v];
+    else
+        [hiddenVerdicts addObject:v];
+    [self filtersChanged];
+}
+
+- (IBAction) showAllBadges:(id)sender
+{
+    [hiddenVerdicts removeAllObjects];
+    [self filtersChanged];
 }
 
 - (BOOL) validateMenuItem:(NSMenuItem *)m
 {
-    if ([m action] == @selector(toggleOnlyRunnable:))
-        [m setState:onlyRunnable ? NSOnState : NSOffState];
+    if ([m action] == @selector(toggleOnlyRunnable:)) {
+        /* Ticked only when the hidden set is exactly "everything that will not
+         * run here"; any other combination is the reader's own. */
+        NSArray *all = [GDCompat allVerdicts];
+        unsigned i, want = 0;
+        BOOL exact = YES;
+        for (i = 0; i < [all count]; i++)
+            if (![GDCompat runsHere:(GDVerdict)[[all objectAtIndex:i] intValue]]) {
+                want++;
+                if (![hiddenVerdicts containsObject:[all objectAtIndex:i]])
+                    exact = NO;
+            }
+        [m setState:(exact && [hiddenVerdicts count] == want && want > 0) ? NSOnState : NSOffState];
+    }
+    /* A badge's own item is ticked while that badge is being shown. */
+    if ([m action] == @selector(toggleVerdictFilter:))
+        [m setState:[self isVerdictHidden:(int)[m tag]] ? NSOffState : NSOnState];
+    if ([m action] == @selector(showAllBadges:))
+        return [hiddenVerdicts count] > 0;
     if ([m action] == @selector(goBack:))
         return historyIndex > 0;
     if ([m action] == @selector(goForward:))

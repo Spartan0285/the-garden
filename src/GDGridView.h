@@ -41,7 +41,7 @@
 {
     NSMutableArray *shelves;
     id delegate;
-    BOOL onlyRunnable;
+    NSSet *hiddenVerdicts;      /* GDVerdict NSNumbers the reader has hidden */
     NSMutableArray *hits;       /* {rect, kind, object, shelf} for clicks */
     NSString *message;          /* shown when there is nothing else */
     int trackTag;
@@ -49,7 +49,7 @@
 - (void) setDelegate:(id)d;
 - (void) setShelves:(NSArray *)s;
 - (NSMutableArray *) shelves;
-- (void) setOnlyRunnable:(BOOL)f;
+- (void) setHiddenVerdicts:(NSSet *)s;
 - (void) setMessage:(NSString *)m;
 - (void) reload;               /* relayout + redraw after model changes */
 @end

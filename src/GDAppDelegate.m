@@ -9,6 +9,8 @@
 #import "GDFeedback.h"
 #import "GDAbout.h"
 #import "GDSettings.h"
+#import "GDWelcome.h"
+#import "GDCompat.h"
 
 static NSMenu *addSubmenu(NSMenu *bar, NSString *title)
 {
@@ -81,7 +83,24 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     addItem(m, @"View Page on Macintosh Garden", @selector(viewOnSite:), @"l");
 
     m = addSubmenu(bar, @"View");
-    addItem(m, @"Only Show Software That Runs on This Mac", @selector(toggleOnlyRunnable:), @"R");
+    addItem(m, @"Only Show What Runs on This Mac", @selector(toggleOnlyRunnable:), @"R");
+    addItem(m, @"Show Every Badge", @selector(showAllBadges:), nil);
+    [m addItem:[NSMenuItem separatorItem]];
+    {
+        /* One line per badge, ticked while that badge is being shown, so a
+         * reader can put away the kinds of software they cannot use without
+         * hiding the rest. */
+        NSArray *all = [GDCompat allVerdicts];
+        unsigned k;
+        for (k = 0; k < [all count]; k++) {
+            int v = [[all objectAtIndex:k] intValue];
+            it = addItem(m, [GDCompat shortLabel:(GDVerdict)v],
+                         @selector(toggleVerdictFilter:), nil);
+            [it setTag:v];
+        }
+    }
+    [m addItem:[NSMenuItem separatorItem]];
+    addItem(m, GDU("What the Badges Mean\xE2\x80\xA6"), @selector(showWelcome:), nil);
 
     m = addSubmenu(bar, @"Window");
     addItem(m, @"Minimize", @selector(performMiniaturize:), @"m");
@@ -108,6 +127,11 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
     store = [[GDStoreController alloc] init];
     [store showWindow];
     [NSApp activateIgnoringOtherApps:YES];
+
+    /* The badges want explaining once.  Not while the harness is taking
+     * pictures: it would sit in front of every one of them. */
+    if ([GDWelcome shouldShowAtLaunch] && [d stringForKey:@"GDDebugSnapshotPath"] == nil)
+        [GDWelcome show];
 
     /* Test hook: open a page, wait until it has settled, write a PNG of the
      * window and optionally quit.  Used over ssh by scripts/remote-run.sh. */
@@ -142,6 +166,11 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
 - (IBAction) showSettings:(id)sender
 {
     [GDSettings show];
+}
+
+- (IBAction) showWelcome:(id)sender
+{
+    [GDWelcome show];
 }
 
 - (IBAction) sendFeedback:(id)sender
@@ -218,6 +247,12 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         [[[GDInstaller sharedInstaller] history] count]) {
         [[GDInstaller sharedInstaller]
             retryHistoryEntry:[[[GDInstaller sharedInstaller] history] objectAtIndex:0]];
+        debugQuiet = 0;
+    }
+    /* Optional: open the welcome window and snapshot that instead. */
+    if ([d boolForKey:@"GDDebugWelcome"] && !debugWebOpened && debugQuiet >= 4) {
+        [GDWelcome show];
+        debugWebOpened = YES;
         debugQuiet = 0;
     }
     /* Optional: open the Settings window and snapshot that instead. */

@@ -468,12 +468,25 @@ static int installScore(GDFile *f, GDItemDetail *d)
     return v;
 }
 
++ (NSArray *) allVerdicts
+{
+    return [NSArray arrayWithObjects:
+               [NSNumber numberWithInt:GDVerdictNative],
+               [NSNumber numberWithInt:GDVerdictRosetta],
+               [NSNumber numberWithInt:GDVerdictClassic],
+               [NSNumber numberWithInt:GDVerdictNeedsClassic],
+               [NSNumber numberWithInt:GDVerdictNeedsEmulator],
+               [NSNumber numberWithInt:GDVerdictNeedsNewerOS],
+               [NSNumber numberWithInt:GDVerdictIncompatible],
+               [NSNumber numberWithInt:GDVerdictUnknown], nil];
+}
+
 + (NSString *) shortLabel:(GDVerdict)v
 {
     switch (v) {
-    case GDVerdictNative:       return @"Runs on this Mac";
-    case GDVerdictRosetta:      return @"Runs via Rosetta";
-    case GDVerdictClassic:      return @"Runs in Classic";
+    case GDVerdictNative:       return @"Compatible with Mac OS X";
+    case GDVerdictRosetta:      return @"Compatible via Rosetta";
+    case GDVerdictClassic:      return @"Compatible with Classic";
     case GDVerdictNeedsClassic: return @"Needs Mac OS 9";
     case GDVerdictNeedsEmulator: return @"Needs an Emulator";
     case GDVerdictNeedsNewerOS: return @"Needs newer Mac OS X";
@@ -486,7 +499,8 @@ static int installScore(GDFile *f, GDItemDetail *d)
 {
     switch (v) {
     case GDVerdictNative:
-        return @"Made for Mac OS X on this kind of Mac.";
+        return @"Made for Mac OS X on this kind of Mac. Whether this Mac is fast "
+                "enough for it is another question.";
     case GDVerdictRosetta:
         return @"A PowerPC program; this Intel Mac runs it through Rosetta.";
     case GDVerdictClassic:
