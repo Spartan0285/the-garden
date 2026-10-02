@@ -20,6 +20,7 @@
 #include <MacTypes.h>
 
 #define GDDNS_DEFAULT_SERVER 0x01010101UL      /* 1.1.1.1 */
+#define GDDNS_ALT_SERVER     0x08080808UL      /* 8.8.8.8, when the first is mute */
 
 enum { GDDNS_IDLE = 0, GDDNS_BUSY, GDDNS_DONE, GDDNS_ERROR };
 

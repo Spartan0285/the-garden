@@ -143,6 +143,11 @@ UInt32 GDDNS_Address(void) { return gAddr; }
 
 void GDDNS_Clear(void)
 {
+    /* A query abandoned part way - a resolver that never answered - leaves the
+     * connection in use, and GDTCP_Clear only frees an idle one.  Everything
+     * afterwards then fails to start, with no error to show for it. */
+    if (gState == GDDNS_BUSY)
+        GDTCP_Abort(GDTCP_Conn());
     GDTCP_Clear(GDTCP_Conn());
     gState = GDDNS_IDLE;
     gAddr  = 0;

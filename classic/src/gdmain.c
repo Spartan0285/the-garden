@@ -19,6 +19,12 @@
 #include <stdio.h>
 
 #include <Files.h>
+#include <Multiverse.h>   /* FindFolder lives here, not in a Folders.h */
+
+/* Retro68 declares FindFolder but not the constants that go with it. */
+#define kOnSystemDisk          ((short) 0x8000)
+#define kCreateFolder          true
+#define kPreferencesFolderType 'pref'
 
 #include "gdhttp.h"
 #include "gddns.h"
@@ -38,17 +44,37 @@ static char      gLines[MAXLINES][96];
 static short     gCount;
 static WindowPtr gWin;
 static short     gLogRef;          /* the transcript, 0 when there is none */
+static long      gUpdates;         /* update events actually received      */
+static long      gDraws;           /* times drawAll ran                    */
 
 /* Everything the window says is also written beside the application, because
  * the window cannot be read from another machine: screencapture over ssh does
  * not work on these Macs, so a file is the only way a test run reports back. */
 static void logOpen(void)
 {
-    OSErr err;
-    (void) FSDelete("\pGardenNet.log", 0);
-    err = Create("\pGardenNet.log", 0, 'ttxt', 'TEXT');
+    short  vRef = 0;
+    long   dirID = 0;
+    FSSpec spec;
+    OSErr  err;
+
+    /* The Preferences folder, not "the default volume".  Volume 0 is whatever
+     * the Finder last set, which was the disk image while the app lived on
+     * one; from anywhere else it can land on the startup disk's root, and
+     * under Mac OS X that is not writable - so the transcript silently never
+     * appeared and the run looked like a crash. */
+    if (FindFolder(kOnSystemDisk, kPreferencesFolderType, kCreateFolder,
+                   &vRef, &dirID) != noErr) {
+        vRef = 0; dirID = 0;
+    }
+    if (FSMakeFSSpec(vRef, dirID, "\pGardenNet.log", &spec) != noErr &&
+        FSMakeFSSpec(vRef, dirID, "\pGardenNet.log", &spec) != fnfErr) {
+        /* fall back to wherever we are */
+        if (FSMakeFSSpec(0, 0, "\pGardenNet.log", &spec) != noErr) return;
+    }
+    (void) FSpDelete(&spec);
+    err = FSpCreate(&spec, 'ttxt', 'TEXT', 0 /* system script */);
     if (err != noErr && err != dupFNErr) return;
-    if (FSOpen("\pGardenNet.log", 0, &gLogRef) != noErr)
+    if (FSpOpenDF(&spec, fsWrPerm, &gLogRef) != noErr)
         gLogRef = 0;
 }
 
@@ -86,8 +112,18 @@ static void drawAll(void)
     short i;
     Rect  r;
     if (!gWin) return;
+    gDraws++;
     SetPort(gWin);
     r = gWin->portRect;
+    /* Say what every one of these should be rather than trusting what the
+     * port was left holding.  EraseRect was plainly working - the window came
+     * out white - while DrawText showed nothing, which is what a white
+     * foreground or a subtractive text mode looks like. */
+    PenNormal();
+    ForeColor(blackColor);
+    BackColor(whiteColor);
+    TextMode(srcOr);
+    TextFace(0);
     EraseRect(&r);
     TextFont(kGeneva);
     TextSize(9);
@@ -98,6 +134,22 @@ static void drawAll(void)
 }
 
 static void pump(void);
+
+/* Count the dark pixels where the first lines of text should be.  QuickDraw
+ * can be asked what it actually put on the screen, which beats waiting for
+ * someone to photograph it: zero here means the text is not being drawn, and
+ * a few hundred means it is. */
+static long inkPixels(void)
+{
+    long n = 0;
+    short x, y;
+    if (!gWin) return -1;
+    SetPort(gWin);
+    for (y = 6; y < 6 + LINE_H * 3; y++)
+        for (x = 8; x < 400; x += 2)
+            if (GetPixel(x, y)) n++;
+    return n;
+}
 
 static void ipText(UInt32 ip, char *out)
 {
@@ -112,8 +164,20 @@ static void ipText(UInt32 ip, char *out)
 static void finishAndQuit(void)
 {
     unsigned long until = TickCount() + 60UL * 20UL;   /* twenty seconds */
+    char note[96];
+
+    /* Draw once directly, not waiting to be asked.  If the window is blank
+     * even after this, the drawing is at fault; if this fixes it, the update
+     * events are. */
+    drawAll();
     while (TickCount() < until)
         pump();
+    sprintf(note, "[window: %ld updates, %ld draws, %ld ink, port %d x %d, lines %d]",
+            gUpdates, gDraws, inkPixels(),
+            (int)(gWin ? gWin->portRect.right - gWin->portRect.left : -1),
+            (int)(gWin ? gWin->portRect.bottom - gWin->portRect.top : -1),
+            (int) gCount);
+    logWrite(note);
     if (gLogRef) { FSClose(gLogRef); gLogRef = 0; FlushVol(0L, 0); }
     ExitToShell();
 }
@@ -124,6 +188,7 @@ static void pump(void)
     if (WaitNextEvent(everyEvent, &ev, 1L, (RgnHandle)0)) {
         switch (ev.what) {
         case updateEvt:
+            gUpdates++;
             BeginUpdate((WindowPtr) ev.message);
             drawAll();
             EndUpdate((WindowPtr) ev.message);
@@ -186,13 +251,28 @@ int main(void)
             if (!GDDNS_Begin(names[k], GDDNS_DEFAULT_SERVER)) {
                 sprintf(msg, "DNS %s: could not ask", names[k]);
                 logLine(msg);
+                GDDNS_Clear();
                 continue;
             }
             started2 = TickCount();
             while (GDDNS_State() == GDDNS_BUSY) {
                 GDDNS_Idle();
                 pump();
-                if (TickCount() - started2 > 60UL * 30UL) break;
+                if (TickCount() - started2 > 60UL * 15UL) break;
+            }
+            if (GDDNS_State() != GDDNS_DONE) {
+                /* The first resolver said nothing.  Tidy up after it - an
+                 * abandoned query holds the connection - and ask another. */
+                logLine("  first resolver silent, trying 8.8.8.8");
+                GDDNS_Clear();
+                if (GDDNS_Begin(names[k], GDDNS_ALT_SERVER)) {
+                    started2 = TickCount();
+                    while (GDDNS_State() == GDDNS_BUSY) {
+                        GDDNS_Idle();
+                        pump();
+                        if (TickCount() - started2 > 60UL * 15UL) break;
+                    }
+                }
             }
             if (GDDNS_State() == GDDNS_DONE) {
                 char ip[20];
