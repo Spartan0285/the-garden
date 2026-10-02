@@ -13,7 +13,9 @@ add_application(GardenNet
     src/gdtcp.c
     src/gddns.c
     src/gdparse.c
+    src/gdcompat.c
     src/gdhttp.c
     src/gdmain.c
+    src/garden.r
     TYPE APPL
     CREATOR "Gdn ")
