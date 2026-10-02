@@ -1,5 +1,6 @@
 #include "gdhttp.h"
 #include <string.h>
+#include <Files.h>
 #include <stdio.h>
 
 static short  gState;
@@ -8,12 +9,15 @@ static char  *gBody;
 static long   gBodyLen;
 static char  *gHead;        /* points into the connection's buffer          */
 static long   gHeadLen;
+static Boolean gToFile;     /* the body is being written, not kept          */
+static short   gFileRef;
 
 short GDHTTP_State(void)  { return gState; }
 short GDHTTP_Status(void) { return gStatus; }
 char *GDHTTP_Body(void)   { return gBody; }
 long  GDHTTP_BodyLen(void){ return gBodyLen; }
 long  GDHTTP_Received(void) { return GDTCP_Received(GDTCP_Conn()); }
+long  GDHTTP_Downloaded(void) { return GDTCP_SunkBytes(GDTCP_Conn()); }
 
 Boolean GDHTTP_Get(const char *host, UInt32 ip, unsigned short port,
                    const char *path)
@@ -44,6 +48,20 @@ Boolean GDHTTP_Get(const char *host, UInt32 ip, unsigned short port,
         return false;
     }
     gState = GDHTTP_BUSY;
+    return true;
+}
+
+Boolean GDHTTP_GetToFile(const char *host, UInt32 ip, unsigned short port,
+                         const char *path, short fileRef)
+{
+    gToFile  = true;
+    gFileRef = fileRef;
+    GDTCP_SetFileSink(GDTCP_Conn(), fileRef);
+    if (!GDHTTP_Get(host, ip, port, path)) {
+        gToFile = false;
+        GDTCP_SetFileSink(GDTCP_Conn(), 0);
+        return false;
+    }
     return true;
 }
 
@@ -88,7 +106,29 @@ void GDHTTP_Idle(void)
     if (gState != GDHTTP_BUSY) return;
     GDTCP_Idle();
     s = GDTCP_State(c);
+
+    /* Still buffering because the headers have not all arrived.  Once they
+     * have, write out whatever body came with them and stream from there. */
+    if (gToFile && GDTCP_SunkBytes(c) == 0 && s != GDTCP_ERROR) {
+        char *d = GDTCP_Data(c);
+        long  n = GDTCP_Len(c), i;
+        for (i = 0; d && i + 3 < n; i++) {
+            if (d[i] == '\r' && d[i+1] == '\n' && d[i+2] == '\r' && d[i+3] == '\n') {
+                long bodyAt = i + 4, count = n - bodyAt;
+                if (parseReply(d, n)) {
+                    if (gStatus == 200 && count > 0)
+                        (void) FSWrite(gFileRef, &count, d + bodyAt);
+                    GDTCP_StartSinking(c);
+                }
+                break;
+            }
+        }
+    }
+
     if (s == GDTCP_DONE) {
+        if (gToFile) {
+            gState = (gStatus == 200) ? GDHTTP_DONE : GDHTTP_ERROR;
+        } else
         gState = parseReply(GDTCP_Data(c), GDTCP_Len(c)) ? GDHTTP_DONE
                                                          : GDHTTP_ERROR;
     } else if (s == GDTCP_ERROR) {
@@ -134,6 +174,8 @@ void GDHTTP_Abort(void)
 
 void GDHTTP_Clear(void)
 {
+    GDTCP_SetFileSink(GDTCP_Conn(), 0);
+    gToFile = false; gFileRef = 0;
     GDTCP_Clear(GDTCP_Conn());
     gState = GDHTTP_IDLE;
     gStatus = 0; gBody = 0; gBodyLen = 0; gHead = 0; gHeadLen = 0;

@@ -30,6 +30,13 @@ enum {
 Boolean GDHTTP_Get(const char *host, UInt32 ip, unsigned short port,
                    const char *path);
 
+/* The same GET, but the body goes to an open file as it arrives rather than
+ * into memory.  The headers are still read first - they are small - and only
+ * what follows them is written out. */
+Boolean GDHTTP_GetToFile(const char *host, UInt32 ip, unsigned short port,
+                         const char *path, short fileRef);
+long    GDHTTP_Downloaded(void);     /* bytes written so far */
+
 void  GDHTTP_Idle(void);
 short GDHTTP_State(void);
 

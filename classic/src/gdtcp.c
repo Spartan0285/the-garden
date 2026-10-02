@@ -134,6 +134,9 @@ struct GDTCPConn {
     wdsEntry      wds[2];
     Handle        resp;
     long          respLen;
+    short         sinkRef;       /* open file to stream into, 0 for none */
+    Boolean       sinking;       /* past the headers: write, do not keep  */
+    long          sunk;          /* bytes written out                     */
     unsigned long stateStart;
 };
 
@@ -227,6 +230,8 @@ Boolean GDTCP_Begin(GDTCPConn *c, UInt32 ip, unsigned short port,
     memcpy(c->req, request, len);
     c->reqLen  = len;
     c->respLen = 0;
+    c->sinking = false;
+    c->sunk    = 0;
 
     /* Creating the stream is local and instant, so it is done synchronously;
      * everything that waits on the network is asynchronous. */
@@ -343,7 +348,18 @@ void GDTCP_Idle(void)
     case CST_RECEIVING:
         if (r == noErr) {
             unsigned short got = c->pb.csParam.receive.rcvBuffLen;
-            if (got > 0) respAppend(c, c->scratch, (long) got);
+            if (got > 0) {
+                if (c->sinking) {
+                    long n = (long) got;
+                    if (FSWrite(c->sinkRef, &n, c->scratch) != noErr) {
+                        finish(c, false);      /* disk full, most likely */
+                        return;
+                    }
+                    c->sunk += n;
+                } else {
+                    respAppend(c, c->scratch, (long) got);
+                }
+            }
             startReceive(c);
         } else if (r == connectionClosing || r == connectionTerminated) {
             /* The far end hung up, which with "Connection: close" is exactly
@@ -355,6 +371,16 @@ void GDTCP_Idle(void)
         break;
     }
 }
+
+void GDTCP_SetFileSink(GDTCPConn *c, short refNum)
+{
+    c->sinkRef = refNum;
+    c->sinking = false;
+    c->sunk    = 0;
+}
+
+void GDTCP_StartSinking(GDTCPConn *c) { if (c->sinkRef) c->sinking = true; }
+long GDTCP_SunkBytes(GDTCPConn *c)    { return c->sunk; }
 
 void GDTCP_FinishEarly(GDTCPConn *c)
 {

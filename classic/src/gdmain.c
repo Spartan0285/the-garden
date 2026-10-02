@@ -60,9 +60,15 @@ static short      gRowCount;
 static short      gSelected = -1;
 static GDItemInfo gItem;
 static char       gItemPath[72];
+static Rect       rFileRows[GDP_MAX_FILES];   /* clickable download rows */
+static short      gFileRowCount;
+static short      gDownloading = -1;          /* which file, -1 for none */
+static short      gDLRef;                     /* the open destination    */
+static FSSpec     gDLSpec;
+static char       gDLName[72];
 
 /* what is in flight */
-enum { REQ_NONE = 0, REQ_LIST, REQ_ITEM, REQ_FEED, REQ_SEARCH };
+enum { REQ_NONE = 0, REQ_LIST, REQ_ITEM, REQ_FEED, REQ_SEARCH, REQ_FILE };
 static short      gPending;
 static UInt32     gGardenIP;
 
@@ -99,6 +105,65 @@ static void setStatus(const char *s)
     gStatus[sizeof(gStatus) - 1] = '\0';
     logLine(s);
     if (gWin) { SetPort(gWin); InvalRect(&gWin->portRect); }
+}
+
+static void pump(void);
+
+/* What kind of file this is, so the Finder shows it properly and StuffIt
+ * Expander will take it when it is double-clicked.  Anything unrecognised is
+ * left as plain data rather than mislabelled. */
+static void typeForName(const char *name, OSType *type, OSType *creator)
+{
+    long n = (long) strlen(name);
+    const char *ext = name;
+    if (n > 4) ext = name + n - 4;
+    *type = 'BINA'; *creator = 'hDmp';
+    if      (!strcmp(ext, ".sit")) { *type = 'SIT!'; *creator = 'SIT!'; }
+    else if (!strcmp(ext, ".hqx")) { *type = 'TEXT'; *creator = 'SITx'; }
+    else if (!strcmp(ext, ".bin")) { *type = 'BINA'; *creator = 'SITx'; }
+    else if (!strcmp(ext, ".zip")) { *type = 'ZIP '; *creator = 'SITx'; }
+    else if (!strcmp(ext, ".img") || !strcmp(ext, ".dsk")) { *type = 'dImg'; *creator = 'ddsk'; }
+}
+
+/* Downloads land in a folder on the desktop, where they can be seen. */
+static Boolean makeDestination(const char *name, FSSpec *spec, short *refNum)
+{
+    short   vRef = 0;
+    long    dirID = 0, folder = 0;
+    OSType  type, creator;
+    Str63   pname;
+    long    n = (long) strlen(name);
+
+    if (FindFolder(kOnSystemDisk, kDesktopFolderType, kCreateFolder,
+                   &vRef, &dirID) != noErr)
+        return false;
+    /* "Garden Downloads" beside everything else on the desktop. */
+    {
+        FSSpec fspec;
+        if (FSMakeFSSpec(vRef, dirID, "\pGarden Downloads", &fspec) == fnfErr)
+            (void) FSpDirCreate(&fspec, 0, &folder);
+        if (FSMakeFSSpec(vRef, dirID, "\pGarden Downloads", &fspec) == noErr) {
+            CInfoPBRec pb;
+            memset(&pb, 0, sizeof(pb));
+            pb.dirInfo.ioNamePtr = fspec.name;
+            pb.dirInfo.ioVRefNum = fspec.vRefNum;
+            pb.dirInfo.ioDrDirID = fspec.parID;
+            if (PBGetCatInfoSync(&pb) == noErr && (pb.dirInfo.ioFlAttrib & 0x10))
+                dirID = pb.dirInfo.ioDrDirID;
+        }
+    }
+
+    if (n > 62) n = 62;
+    pname[0] = (unsigned char) n;
+    memcpy(pname + 1, name, n);
+    if (FSMakeFSSpec(vRef, dirID, pname, spec) != noErr &&
+        FSMakeFSSpec(vRef, dirID, pname, spec) != fnfErr)
+        return false;
+    (void) FSpDelete(spec);
+    typeForName(name, &type, &creator);
+    if (FSpCreate(spec, creator, type, 0) != noErr) return false;
+    if (FSpOpenDF(spec, fsWrPerm, refNum) != noErr) return false;
+    return true;
 }
 
 /* ---------------------------------------------------------------- drawing */
@@ -251,9 +316,16 @@ static void drawItem(void)
             gItem.fileCount == 1 ? "" : "s");
     drawStr(12, y, buf, bold);
     y += 15;
+    gFileRowCount = 0;
     for (i = 0; i < gItem.fileCount && y < WIN_H - FOOT_H - 14; i++) {
         GDCVerdict v = GDCompat_Verdict(gItem.files[i].systems, gItem.arch,
                                         gItem.files[i].name);
+        SetRect(&rFileRows[i], 12, (short)(y - 10), WIN_W - 12, (short)(y + 3));
+        gFileRowCount = (short)(i + 1);
+        if (i == gDownloading) {
+            Rect hl = rFileRows[i];
+            InvertRect(&hl);
+        }
         TextSize(9);
         sprintf(buf, "%.36s   %s", gItem.files[i].name, gItem.files[i].size);
         drawStr(20, y, buf, 0);
@@ -332,6 +404,68 @@ static void loadList(void)
     }
 }
 
+static void startDownload(short which)
+{
+    char msg[120];
+    if (which < 0 || which >= gItem.fileCount) return;
+    if (gDownloading >= 0) return;                  /* one at a time */
+
+    strncpy(gDLName, gItem.files[which].name, sizeof(gDLName) - 1);
+    if (!makeDestination(gDLName, &gDLSpec, &gDLRef)) {
+        setStatus("Could not make the file on the desktop.");
+        return;
+    }
+    /* The mirror the parser kept is the one that serves plain HTTP. */
+    {
+        UInt32 ip = 0;
+        GDDNS_Clear();
+        if (GDDNS_Begin(gItem.files[which].host, GDDNS_DEFAULT_SERVER)) {
+            unsigned long t0 = TickCount();
+            while (GDDNS_State() == GDDNS_BUSY) {
+                GDDNS_Idle();
+                pump();
+                if (TickCount() - t0 > 60UL * 15UL) break;
+            }
+            if (GDDNS_State() == GDDNS_DONE) ip = GDDNS_Address();
+        }
+        GDDNS_Clear();
+        if (!ip) {
+            FSClose(gDLRef); gDLRef = 0;
+            setStatus("Could not find that mirror.");
+            return;
+        }
+        sprintf(msg, "Downloading %.40s...", gDLName);
+        setStatus(msg);
+        gDownloading = which;
+        gPending = REQ_FILE;
+        gState = ST_ITEM;                       /* keep the page visible */
+        GDHTTP_Clear();
+        if (!GDHTTP_GetToFile(gItem.files[which].host, ip, 80,
+                              gItem.files[which].path, gDLRef)) {
+            FSClose(gDLRef); gDLRef = 0;
+            gDownloading = -1; gPending = REQ_NONE;
+            setStatus("Could not start the download.");
+        }
+    }
+}
+
+static void finishDownload(Boolean ok)
+{
+    char msg[120];
+    long written = GDHTTP_Downloaded();
+    if (gDLRef) { FSClose(gDLRef); gDLRef = 0; FlushVol(0L, gDLSpec.vRefNum); }
+    if (ok && written > 0) {
+        sprintf(msg, "Saved %.36s (%ld KB) to the desktop.", gDLName,
+                written / 1024L);
+    } else {
+        (void) FSpDelete(&gDLSpec);          /* do not leave a part-file */
+        sprintf(msg, "Download failed after %ld KB.", written / 1024L);
+    }
+    setStatus(msg);
+    gDownloading = -1;
+    gPending = REQ_NONE;
+}
+
 static void loadItem(const char *itemPath)
 {
     strncpy(gItemPath, itemPath, sizeof(gItemPath) - 1);
@@ -341,6 +475,10 @@ static void loadItem(const char *itemPath)
 static void fetchFinished(void)
 {
     char msg[80];
+    if (gPending == REQ_FILE) {
+        finishDownload(GDHTTP_State() == GDHTTP_DONE);
+        return;
+    }
     if (GDHTTP_State() != GDHTTP_DONE || GDHTTP_Status() != 200) {
         sprintf(msg, "Failed (HTTP %d)", (int) GDHTTP_Status());
         setStatus(msg);
@@ -381,7 +519,10 @@ static void click(Point where)
     if (gState == ST_BUSY) return;
 
     if (gState == ST_ITEM) {
-        if (PtInRect(where, &rBackBtn)) { gState = ST_LIST; setStatus(""); }
+        short i;
+        if (PtInRect(where, &rBackBtn)) { gState = ST_LIST; setStatus(""); return; }
+        for (i = 0; i < gFileRowCount; i++)
+            if (PtInRect(where, &rFileRows[i])) { startDownload(i); return; }
         return;
     }
     {
@@ -523,6 +664,17 @@ int main(void)
     while (!gQuit) {
         if (gPending != REQ_NONE) {
             GDHTTP_Idle();
+            if (gPending == REQ_FILE && GDHTTP_State() == GDHTTP_BUSY) {
+                static unsigned long lastTick;
+                if (TickCount() - lastTick > 30) {     /* twice a second */
+                    char msg[80];
+                    lastTick = TickCount();
+                    sprintf(msg, "%.30s  -  %ld KB", gDLName,
+                            GDHTTP_Downloaded() / 1024L);
+                    strncpy(gStatus, msg, sizeof(gStatus) - 1);
+                    SetPort(gWin); InvalRect(&gWin->portRect);
+                }
+            }
             if (GDHTTP_State() != GDHTTP_BUSY) fetchFinished();
         }
         pump();

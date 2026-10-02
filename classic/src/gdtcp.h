@@ -53,6 +53,14 @@ long  GDTCP_Received(GDTCPConn *c);  /* bytes so far, for a progress line   */
 short       GDTCP_LastErr(void);
 const char *GDTCP_LastStep(void);
 
+/* Send what arrives to an open file instead of piling it up in memory.  A
+ * page is 30K and fits anywhere; a download is megabytes and would not fit in
+ * this application's partition at all, so the bytes have to go straight out to
+ * disk as they come in.  Pass 0 to go back to buffering. */
+void GDTCP_SetFileSink(GDTCPConn *c, short refNum);
+void GDTCP_StartSinking(GDTCPConn *c);   /* from here on, write, do not keep */
+long GDTCP_SunkBytes(GDTCPConn *c);
+
 /* Finish successfully now, keeping what has arrived.  For a reply that frames
  * its own length - DNS over TCP does - waiting for the far end to hang up
  * would mean waiting out the whole timeout, because a resolver keeps the
