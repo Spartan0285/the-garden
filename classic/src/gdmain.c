@@ -22,6 +22,7 @@
 
 #include "gdhttp.h"
 #include "gddns.h"
+#include "gdparse.h"
 
 /* macintoshgarden.org.  A literal address while the resolver is still to be
  * written: this milestone is about the transport.  The Host header is what
@@ -254,16 +255,18 @@ int main(void)
     sprintf(msg, "Body: %ld bytes", GDHTTP_BodyLen());
     logLine(msg);
 
-    /* The landmark the listing parser will key on.  Ten of them means the page
-     * arrived whole and is the page we think it is. */
+    /* Pull the rows out, which is what a list of software actually needs. */
     {
-        long i, n = 0, len = GDHTTP_BodyLen();
-        const char *b = GDHTTP_Body();
-        for (i = 0; b && i + 12 < len; i++)
-            if (memcmp(b + i, "game-preview", 12) == 0) n++;
-        sprintf(msg, "\"game-preview\" blocks: %ld%s", n,
-                n == 10 ? "   (ten, as a listing has)" : "");
+        static GDItemRow rows[GDP_MAX_ITEMS];
+        short n, i;
+        n = GDParse_Listing(GDHTTP_Body(), GDHTTP_BodyLen(), rows, GDP_MAX_ITEMS);
+        sprintf(msg, "Parsed %d rows:", (int) n);
         logLine(msg);
+        for (i = 0; i < n; i++) {
+            sprintf(msg, "  %-26.26s %-18.18s %s",
+                    rows[i].title, rows[i].category, rows[i].year);
+            logLine(msg);
+        }
     }
 
     logLine("");
