@@ -11,6 +11,7 @@ endif()
 
 add_application(GardenNet
     src/gdtcp.c
+    src/gddns.c
     src/gdhttp.c
     src/gdmain.c
     TYPE APPL

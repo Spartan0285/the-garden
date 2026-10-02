@@ -53,6 +53,12 @@ long  GDTCP_Received(GDTCPConn *c);  /* bytes so far, for a progress line   */
 short       GDTCP_LastErr(void);
 const char *GDTCP_LastStep(void);
 
+/* Finish successfully now, keeping what has arrived.  For a reply that frames
+ * its own length - DNS over TCP does - waiting for the far end to hang up
+ * would mean waiting out the whole timeout, because a resolver keeps the
+ * connection open for the next question. */
+void GDTCP_FinishEarly(GDTCPConn *c);
+
 void GDTCP_Abort(GDTCPConn *c);
 void GDTCP_Clear(GDTCPConn *c);    /* DONE/ERROR -> IDLE, ready for reuse   */
 

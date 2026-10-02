@@ -356,6 +356,12 @@ void GDTCP_Idle(void)
     }
 }
 
+void GDTCP_FinishEarly(GDTCPConn *c)
+{
+    if (c->cst == CST_RECEIVING || c->cst == CST_SENDING)
+        finish(c, true);
+}
+
 void GDTCP_Abort(GDTCPConn *c)
 {
     if (c->cst == CST_IDLE) return;

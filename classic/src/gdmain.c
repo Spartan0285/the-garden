@@ -21,6 +21,7 @@
 #include <Files.h>
 
 #include "gdhttp.h"
+#include "gddns.h"
 
 /* macintoshgarden.org.  A literal address while the resolver is still to be
  * written: this milestone is about the transport.  The Host header is what
@@ -97,6 +98,13 @@ static void drawAll(void)
 
 static void pump(void);
 
+static void ipText(UInt32 ip, char *out)
+{
+    sprintf(out, "%lu.%lu.%lu.%lu",
+            (unsigned long)((ip >> 24) & 0xFF), (unsigned long)((ip >> 16) & 0xFF),
+            (unsigned long)((ip >> 8) & 0xFF),  (unsigned long)(ip & 0xFF));
+}
+
 /* Show the result for a moment, then quit.  A test run has to let go of the
  * volume it was launched from, or the next build cannot replace it - and an
  * app that never quits means killing all of Classic to get it back. */
@@ -135,6 +143,7 @@ int main(void)
     Rect bounds;
     char msg[96];
     unsigned long started;
+    UInt32 gardenIP = GARDEN_IP;
 
     InitGraf(&qd.thePort);
     InitFonts();
@@ -160,10 +169,52 @@ int main(void)
     }
     logLine("MacTCP is open.");
 
+    /* Resolve, rather than trusting the address baked in above.  The mirrors
+     * sit behind Cloudflare, where one address is a poor thing to rely on. */
+    {
+        static const char *names[2];
+        UInt32 resolved[2];
+        short  k;
+        names[0] = GARDEN_HOST;
+        names[1] = "old.mac.gdn";          /* the mirror that serves downloads */
+
+        for (k = 0; k < 2; k++) {
+            unsigned long started2;
+            resolved[k] = 0;
+            GDDNS_Clear();
+            if (!GDDNS_Begin(names[k], GDDNS_DEFAULT_SERVER)) {
+                sprintf(msg, "DNS %s: could not ask", names[k]);
+                logLine(msg);
+                continue;
+            }
+            started2 = TickCount();
+            while (GDDNS_State() == GDDNS_BUSY) {
+                GDDNS_Idle();
+                pump();
+                if (TickCount() - started2 > 60UL * 30UL) break;
+            }
+            if (GDDNS_State() == GDDNS_DONE) {
+                char ip[20];
+                resolved[k] = GDDNS_Address();
+                ipText(resolved[k], ip);
+                sprintf(msg, "DNS %s -> %s  (%ld ticks)", names[k], ip,
+                        (long)(TickCount() - started2));
+            } else {
+                sprintf(msg, "DNS %s failed (%s, OSErr %d)", names[k],
+                        GDTCP_LastStep(), (int) GDTCP_LastErr());
+            }
+            logLine(msg);
+        }
+        gardenIP = resolved[0] ? resolved[0] : GARDEN_IP;
+        if (!resolved[0])
+            logLine("Falling back to the built-in address.");
+    }
+    GDDNS_Clear();
+
     sprintf(msg, "GET http://%s/apps/all", GARDEN_HOST);
     logLine(msg);
 
-    if (!GDHTTP_Get(GARDEN_HOST, GARDEN_IP, 80, "/apps/all")) {
+    if (!GDHTTP_Get(GARDEN_HOST, gardenIP, 80, "/apps/all")) {
         sprintf(msg, "Could not start: %s failed, OSErr %d",
                 GDTCP_LastStep(), (int) GDTCP_LastErr());
         logLine(msg);
