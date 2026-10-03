@@ -10,7 +10,7 @@
  *   2. keeps the whole thing in R2, so nothing is lost even if step 4 fails
  *   3. puts the screenshot in R2 too, served back through /api/shot/<id>
  *      (the bucket stays private)
- *   4. opens an issue in one private repository, labelled with the app it
+ *   4. opens an issue in one private repository, labeled with the app it
  *      came from, so several apps share one place
  *
  * A report carries its own id and is retried by the app until it is accepted,
@@ -67,7 +67,7 @@ function looksLikePNG(bytes) {
 }
 
 // The full address is used for rate limiting, which expires in hours. What is
-// kept beside the report is coarse: enough to recognise a pattern of abuse,
+// kept beside the report is coarse: enough to recognize a pattern of abuse,
 // not a record of where each person was sitting.
 function coarseIP(ip) {
   if (!ip || ip === 'unknown') return 'unknown';
