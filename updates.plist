@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3.7 Alpha</string>
+	<string>0.3.8 Alpha</string>
 	<key>build</key>
-	<string>14</string>
+	<string>15</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.7/TheGarden-0.3.7.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.8/TheGarden-0.3.8.zip</string>
 	<key>sha256</key>
-	<string>3121576edd66e5fe739bccffb6c97cf78b3ec6e4d8bd43944c3051be199adb97</string>
+	<string>25f96ce4f6f11b6040b001c4c0f72abe62ca711d546645038e52bf53e449007b</string>
 	<key>size</key>
-	<string>6855239</string>
+	<string>7024771</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Badges now say what they mean. "Runs on this Mac" became "Compatible with Mac OS X", because the badge is about the kind of processor and the version of Mac OS X and never promised the Mac was fast enough: iWork '09 is compatible with a PowerPC Mac and is still far beyond a G3. A welcome window on first launch draws every badge beside what it means and says so plainly; it can be turned off with the tick in it, and comes back from "What the Badges Mean..." in the View menu. Badges can be hidden one at a time, from a new pull-down beside the search field or from the View menu. Browsing with a badge hidden used to be close to unusable on a slower Mac, because emptying a shelf made The Garden ask for page after page behind the scenes; it now stops after three, item pages are read on a second thread so the window still answers, the list settles once instead of items leaving it one at a time, and what it works out about each item is kept between launches.</string>
+	<string>Reaches the Macintosh Garden again while the site's security certificate is expired: the connection stays encrypted and the site's identity is still checked, and the window says when an expired certificate was accepted.</string>
 	<key>signature</key>
-	<string>H4bRnyAoWHKMp+8Axz2c9Dui/SgsafMNWhoQWY6Jt4VbxUU+9m28XgMGy8cZ0BDcgdkJGIqAy8zncrUjF/P6Cg==</string>
+	<string>/Mugg9Gjp/FABps14G55ODQ9UWFO4qaoYHMR6EggGpUbd3jNvbZ4CNR3kSKUDebci1VQLH6HMhtISOVur1oKCA==</string>
 </dict>
 </plist>
