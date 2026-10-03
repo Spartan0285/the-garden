@@ -1,6 +1,7 @@
 #import "GDItemView.h"
 #import "GDCatalog.h"
 #import "GDInstaller.h"
+#import "GDReports.h"
 #import "GDStyle.h"
 #import "GDHTTP.h"
 #include <math.h>
@@ -95,6 +96,8 @@ static float textHeight(NSString *s, NSFont *f, float w)
                                                  name:GDJobChangedNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(jobChanged:)
                                                  name:GDLibraryChangedNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(imageLoaded:)
+                                                 name:GDReportsChangedNotification object:nil];
     [self rebuild];
     return self;
 }
@@ -352,6 +355,32 @@ static float textHeight(NSString *s, NSFont *f, float w)
             (void)where;
             [self link:lr kind:@"emulator" object:nil];
             y += 16;
+        }
+    }
+    /* What the badge above is a guess about, as reported by people who ran
+     * it.  The question is only put to someone who has the thing installed,
+     * and only once. */
+    if (detail) {
+        NSString *said = [GDReports summaryFor:path];
+        if ([said length]) {
+            GDDrawText(said, NSMakeRect(LEFT_X, y, LEFT_W, 28), [NSFont systemFontOfSize:10],
+                       GDSubtleTextColor(), NO);
+            y += 20;
+        }
+        if (installedFile && ![GDReports hasAnswered:path]) {
+            NSDictionary *qa = textAttrs([NSFont systemFontOfSize:10], GDSubtleTextColor());
+            NSDictionary *la = textAttrs([NSFont boldSystemFontOfSize:10], GDAccentColor());
+            NSString *q = @"Did it run on your Mac?";
+            NSSize qs = [q sizeWithAttributes:qa];
+            NSSize ys = [@"Yes" sizeWithAttributes:la];
+            NSRect yr = NSMakeRect(LEFT_X + qs.width + 8, y, ys.width, ys.height);
+            NSRect nr = NSMakeRect(NSMaxX(yr) + 10, y, [@"No" sizeWithAttributes:la].width, ys.height);
+            [q drawInRect:NSMakeRect(LEFT_X, y, qs.width, qs.height) withAttributes:qa];
+            [@"Yes" drawInRect:yr withAttributes:la];
+            [@"No" drawInRect:nr withAttributes:la];
+            [self link:yr kind:@"ranYes" object:installedFile];
+            [self link:nr kind:@"ranNo" object:installedFile];
+            y += 22;
         }
     }
     [[NSColor colorWithCalibratedWhite:0.84 alpha:1] set];
@@ -666,6 +695,11 @@ static float textHeight(NSString *s, NSFont *f, float w)
             [delegate itemView:self openItem:[l objectAtIndex:2]];
         } else if ([kind isEqualToString:@"listing"] && [delegate respondsToSelector:@selector(itemView:openListing:)]) {
             [delegate itemView:self openListing:[l objectAtIndex:2]];
+        } else if ([kind isEqualToString:@"ranYes"] || [kind isEqualToString:@"ranNo"]) {
+            NSString *variant = [l objectAtIndex:2];
+            [GDReports report:[kind isEqualToString:@"ranYes"] forPath:path
+                      variant:[variant length] ? variant : nil];
+            [self setNeedsDisplay:YES];
         } else if ([kind isEqualToString:@"emulator"] &&
                    [delegate respondsToSelector:@selector(itemView:tryEmulator:)]) {
             [delegate itemView:self tryEmulator:detail];

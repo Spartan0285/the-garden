@@ -16,6 +16,9 @@ no helper on another machine.
   archives (StuffIt, BinHex, MacBinary, Compact Pro, zip, ...) via the bundled
   XADMaster; apps go to /Applications, Mac OS 9 software to
   "Applications (Mac OS 9)", installer packages open in Installer.
+- **Did it run:** a title you installed asks once whether it actually ran, and
+  every item page shows what the answers add up to for a Mac like yours. The
+  badge is a reading of the Garden's own fields; this is the part that knows.
 - **Library:** downloads and installed titles with their real icons: Open,
   Add to Dock, Show in Finder, Move to Trash, View in Store.
 - **Updates:** installed titles for which the Garden has a newer file of the

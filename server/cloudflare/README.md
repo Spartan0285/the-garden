@@ -11,6 +11,7 @@ the same hostname, on the free plan.
     functions/api/shot/[[path]].js   GET a report's screenshot
     functions/api/search.js          GET the catalogue index, searched
     functions/api/catalog.js         POST rows for it; GET how many there are
+    functions/api/reports.js         POST "it ran" / "it did not"; GET the counts
 
 Copy both into the repository your Pages site is built from, keeping the
 `functions/api/...` paths. Nothing else about the site changes.
@@ -71,6 +72,28 @@ off entirely with an empty string:
 
     defaults write org.macintoshgarden.store GDSearchURL  https://example.com/api/search
     defaults write org.macintoshgarden.store GDCatalogURL ""
+
+## Did it actually run?
+
+The badge on a download is worked out from the Garden's "Architecture:" line,
+the file's "For ..." line and what this Mac is. It is a good guess and it
+stays a guess until somebody runs the thing. So a title you have installed
+asks, once, whether it ran, and the item page shows what the answers add up
+to - "Ran for 12 people on a Mac like yours" - beside our opinion.
+
+    POST /api/reports    one line: path, file, host, 1 or 0
+    GET  /api/reports?path=/games/dark-castle
+
+Only counts are kept: a row per (title, file, host, outcome) with a number on
+it. There is no record of an individual answer, so there is nothing to tie
+two of them together and nothing to tie any of them to a person. `host` has
+to be exactly what the app's own `hostDescription` produces ("PowerPC Mac,
+Mac OS X 10.4, Classic") and is rejected otherwise, so it cannot be used to
+carry something else. Nothing is ever sent without Yes or No being pressed.
+One address may send 30 answers an hour, and the same answer about the same
+title counts once for six months.
+
+    defaults write org.macintoshgarden.store GDReportsURL ""   # off entirely
 
 ## What a report becomes
 

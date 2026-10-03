@@ -9,6 +9,7 @@
 #import "GDFeedback.h"
 #import "GDAbout.h"
 #import "GDSettings.h"
+#import "GDReports.h"
 #import "GDWelcome.h"
 #import "GDCompat.h"
 
@@ -147,6 +148,13 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         else if ([debugPage isEqualToString:@"categories"]) [store showCategories:nil];
         else if ([debugPage isEqualToString:@"library"]) [store showLibrary:nil];
         else if ([debugPage isEqualToString:@"updates"]) [store showUpdates:nil];
+    }
+    /* Test hook: answer the "did it run?" question for the page being shown,
+     * which is otherwise only reachable with a mouse. */
+    if ([[d stringForKey:@"GDDebugReport"] length] && [debugPage hasPrefix:@"/"]) {
+        NSDictionary *entry = [[GDInstaller sharedInstaller] libraryEntryForPath:debugPage];
+        [GDReports report:[[d stringForKey:@"GDDebugReport"] isEqualToString:@"yes"]
+                  forPath:debugPage variant:[entry objectForKey:@"file"]];
     }
     if ([d stringForKey:@"GDDebugSnapshotPath"])
         debugTimer = [[NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(debugTick:)
