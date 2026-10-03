@@ -688,6 +688,13 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
         }
     } else {
         [sh->entries addObjectsFromArray:[L items]];
+        /* Say it rather than excuse it quietly. */
+        if ([r usedExpiredCertificate]) {
+            [sh->subtitle autorelease];
+            sh->subtitle = [@"The Garden's security certificate has expired. "
+                             "The connection is still encrypted and the site is still "
+                             "who it says it is - only the date is out." retain];
+        }
         sh->hasMore = [L page] + 1 < [L pageCount] && sh->seeAll == nil;
         if (sh->hasMore) {
             NSMutableDictionary *st = [NSMutableDictionary dictionary];

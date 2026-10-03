@@ -46,7 +46,9 @@ CFLAGS_i386 ?= -march=prescott
 LDBASE  = -isysroot $(SDK) -Wl,-syslibroot,$(SDK) -lxml2 -framework SystemConfiguration -framework CoreFoundation -framework Security -framework ApplicationServices
 LDAPP   = $(LDBASE) -framework Cocoa -framework WebKit -F$(VENDOR) -framework XADMaster -framework UniversalDetector
 LDTOOL  = $(LDBASE) -framework Foundation
-DEPS_LIBS = libcurl.a libssl.a libcrypto.a libz.a
+# libcurl gained a Brotli dependency when the dependencies were rebuilt
+# (2026-10-02); brotlidec needs brotlicommon, so the order matters.
+DEPS_LIBS = libcurl.a libssl.a libcrypto.a libz.a libbrotlidec.a libbrotlicommon.a
 
 .PHONY: all app tool clean
 

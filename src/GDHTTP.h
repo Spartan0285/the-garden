@@ -74,6 +74,8 @@
     BOOL usesSession;            /* the session cookie matters: never routed */
     BOOL viaAccelerator, bypassAccelerator;
     int restart;                 /* GDRestartNone/Direct/Redirect, between attempts */
+    BOOL allowExpiredCert;       /* this attempt excuses an expired leaf     */
+    BOOL triedExpiredCert;       /* ... and only ever try that once          */
     int redirects;
 }
 
@@ -95,6 +97,10 @@
 /* This request is part of a sequence that shares the site's session cookie
  * (the search form token): it must go to the site itself. */
 - (void) setUsesSession:(BOOL)flag;
+
+/* True when this request only succeeded because an expired certificate was
+ * accepted.  The store says so in the window rather than excusing it quietly. */
+- (BOOL) usedExpiredCertificate;
 /* Extra headers to send (the WebKit bridge forwards WebKit's own). */
 - (void) setRequestHeaders:(NSDictionary *)headers;
 - (BOOL) viaAccelerator;

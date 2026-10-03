@@ -9,9 +9,57 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <openssl/evp.h>
+#include <openssl/ssl.h>
+#include <openssl/x509_vfy.h>
 
 /* What to do after an attempt that did not produce the site's answer. */
-enum { GDRestartNone = 0, GDRestartDirect, GDRestartRedirect, GDRestartAgain };
+enum { GDRestartNone = 0, GDRestartDirect, GDRestartRedirect, GDRestartAgain,
+       GDRestartAllowExpired };
+
+/* The Garden's certificate expired on 2 October 2026 and every verifying
+ * client, this app included, stopped being able to reach the site.  Rather
+ * than fail - or drop to plain http, which would give up the encryption and
+ * the server's identity along with the clock - a failed request is tried once
+ * more with a verification callback that excuses exactly one thing: a leaf
+ * certificate that is past its notAfter.  The chain is still built to a
+ * trusted root, the hostname is still checked, the traffic is still
+ * encrypted, and every other verification error still fails.
+ *
+ * And only for the Garden itself, so a certificate problem anywhere else is
+ * still a certificate problem. */
+static BOOL isCertificateFailure(int code)
+{
+    return code == CURLE_PEER_FAILED_VERIFICATION ||
+           code == CURLE_SSL_CACERT ||
+           code == CURLE_SSL_CACERT_BADFILE;
+}
+
+static BOOL isGardenHost(NSString *host)
+{
+    host = [host lowercaseString];
+    return [host isEqualToString:@"macintoshgarden.org"] ||
+           [host hasSuffix:@".macintoshgarden.org"];
+}
+
+/* OpenSSL asks us about each certificate it could not accept. */
+static int verifyAllowingExpiry(int preverified, X509_STORE_CTX *x)
+{
+    if (preverified)
+        return 1;
+    if (X509_STORE_CTX_get_error(x) == X509_V_ERR_CERT_HAS_EXPIRED &&
+        X509_STORE_CTX_get_error_depth(x) == 0) {
+        X509_STORE_CTX_set_error(x, X509_V_OK);
+        return 1;
+    }
+    return 0;
+}
+
+static CURLcode installExpiryCallback(CURL *h, void *sslctx, void *ud)
+{
+    (void)h; (void)ud;
+    SSL_CTX_set_verify((SSL_CTX *)sslctx, SSL_VERIFY_PEER, verifyAllowingExpiry);
+    return CURLE_OK;
+}
 
 static CURLSH *gShare;
 static CURLM *gMulti;
@@ -328,6 +376,7 @@ static void engineCancel(GDHTTPRequest *r)
 - (void) setPostBody:(NSData *)body { [postBody autorelease]; postBody = [body copy]; }
 - (void) setDestinationPath:(NSString *)p { [destinationPath autorelease]; destinationPath = [p copy]; }
 - (void) setUsesSession:(BOOL)flag { usesSession = flag; }
+- (BOOL) usedExpiredCertificate { return allowExpiredCert; }
 - (void) setWantsResponseHeaders:(BOOL)flag { wantsHeaders = flag; }
 - (void) setRequestHeaders:(NSDictionary *)h { [requestHeaders autorelease]; requestHeaders = [h copy]; }
 - (NSDictionary *) responseHeaders { return responseHeaders; }
@@ -665,6 +714,10 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     curl_easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(h, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(h, CURLOPT_SSLVERSION, (long)CURL_SSLVERSION_TLSv1_2);
+    if (allowExpiredCert) {
+        curl_easy_setopt(h, CURLOPT_SSL_CTX_FUNCTION, installExpiryCallback);
+        curl_easy_setopt(h, CURLOPT_SSL_CTX_DATA, self);
+    }
     if (gCABundle != nil)
         curl_easy_setopt(h, CURLOPT_CAINFO, [gCABundle fileSystemRepresentation]);
     curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, progress);
@@ -751,6 +804,9 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     restart = GDRestartNone;
     if (what == GDRestartAgain) {
         ;                       /* the same request, from the start */
+    } else if (what == GDRestartAllowExpired) {
+        triedExpiredCert = YES;
+        allowExpiredCert = YES;
     } else if (what == GDRestartDirect) {
         bypassAccelerator = YES;
         viaAccelerator = NO;
@@ -823,6 +879,15 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
         unlink([partialPath fileSystemRepresentation]);
         resumedFrom = 0;
         restart = GDRestartAgain;
+        return;
+    }
+
+    /* The certificate would not verify.  If this is the Garden, whose
+     * certificate has expired, ask once more excusing only that. */
+    if (!cancelled && restart == GDRestartNone && !triedExpiredCert &&
+        isCertificateFailure(code) && isGardenHost([url host]) &&
+        [[url scheme] isEqualToString:@"https"]) {
+        restart = GDRestartAllowExpired;
         return;
     }
 
