@@ -22,6 +22,12 @@ static NSMutableSet *gStale;             /* ... and worth asking about again  */
 static NSMutableSet *gAsking;            /* paths being fetched right now    */
 static NSMutableArray *gRequests;        /* the requests themselves          */
 
+@interface GDReports (Private)
++ (void) count:(NSString *)path ranHere:(int)rh failedHere:(int)fh
+   ranAnywhere:(int)ra failedAnywhere:(int)fa add:(BOOL)add;
++ (void) parse:(NSData *)data forPath:(NSString *)path;
+@end
+
 @implementation GDReports
 
 static NSString *endpoint(void)

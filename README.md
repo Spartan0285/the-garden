@@ -19,6 +19,11 @@ no helper on another machine.
 - **Did it run:** a title you installed asks once whether it actually ran, and
   every item page shows what the answers add up to for a Mac like yours. The
   badge is a reading of the Garden's own fields; this is the part that knows.
+- **One at a time:** downloads queue rather than race; a waiting one says so,
+  and any of them can be paused and taken up again later, carrying on from the
+  part that arrived. The Dock says when one finishes while you are elsewhere.
+  `defaults write org.macintoshgarden.store GDMaxDownloads 2` for a line that
+  can take it.
 - **Library:** downloads and installed titles with their real icons: Open,
   Add to Dock, Show in Finder, Move to Trash, View in Store.
 - **Updates:** installed titles for which the Garden has a newer file of the

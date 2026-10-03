@@ -28,6 +28,7 @@ typedef enum {
     GDJobVerifying,
     GDJobUnpacking,
     GDJobInstalling,
+    GDJobPaused,        /* stopped on purpose; the part file is kept */
     GDJobDone,
     GDJobFailed,
     GDJobCancelled
@@ -91,6 +92,18 @@ typedef enum {
 - (GDInstallJob *) installFile:(GDFile *)f ofItem:(GDItemDetail *)d;
 - (void) cancel:(GDInstallJob *)job;
 - (void) retry:(GDInstallJob *)job;
+
+/* Downloads wait for each other.  One at a time by default, because these
+ * are large files over links that are rarely fast and two of them racing
+ * finish no sooner; the number is a preference (GDMaxDownloads) for anyone
+ * whose line can take it.  A download that is waiting says so.
+ *
+ * Pausing keeps the part that has arrived: resuming asks the server to carry
+ * on from there, as an interrupted download already does. */
+- (void) pause:(GDInstallJob *)job;
+- (void) resume:(GDInstallJob *)job;
+- (BOOL) canPause:(GDInstallJob *)job;
+- (int) maxActiveDownloads;
 - (void) clearFinished;
 - (NSArray *) jobs;
 - (GDInstallJob *) jobForItemPath:(NSString *)path;

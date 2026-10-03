@@ -239,6 +239,9 @@ static NSString *safeName(NSString *s)
 @interface GDInstaller (Private)
 - (void) changed:(GDInstallJob *)job;
 - (void) startDownload:(GDInstallJob *)job;
+- (void) beginDownload:(GDInstallJob *)job;
+- (void) startNextQueued;
+- (int) activeDownloadCount;
 - (void) saveLibrary;
 - (NSString *) attachImage:(NSString *)p;
 - (void) repairLaunchPaths;
@@ -267,6 +270,8 @@ static NSString *jobStateName(GDJobState s)
     case GDJobDone:      return @"done";
     case GDJobFailed:    return @"failed";
     case GDJobCancelled: return @"cancelled";
+    case GDJobPaused:    return @"paused";
+    case GDJobQueued:    return @"waiting";
     default:             return @"downloading";    /* every state still running */
     }
 }
@@ -607,6 +612,8 @@ static int compareVersions(NSArray *a, NSArray *b)
             if (![h isKindOfClass:[NSDictionary class]] || [h objectForKey:@"key"] == nil)
                 continue;
             if ([[h objectForKey:@"state"] isEqualToString:@"downloading"] ||
+                [[h objectForKey:@"state"] isEqualToString:@"paused"] ||
+                [[h objectForKey:@"state"] isEqualToString:@"waiting"] ||
                 [[h objectForKey:@"state"] isEqualToString:@"retrying"]) {
                 [h setObject:@"interrupted" forKey:@"state"];
                 [h setObject:@"The Garden stopped before this finished." forKey:@"status"];
@@ -933,11 +940,24 @@ static GDFile *fileNamed(NSString *name, GDItemDetail *d)
 
 - (void) setJob:(GDInstallJob *)job state:(GDJobState)s status:(NSString *)text
 {
+    GDJobState was = job->state;
     job->state = s;
     [job->status autorelease];
     job->status = [text copy];
     [self recordJob:job];
     [self changed:job];
+
+    /* Downloading is the only part that waits for a turn; the rest of a job
+     * is this Mac's own work, so the next download starts as soon as the
+     * bytes are in rather than after the unpacking. */
+    if (was == GDJobDownloading && s != GDJobDownloading)
+        [self startNextQueued];
+
+    /* These take minutes.  If the reader has gone to do something else, the
+     * Dock should say so when it is done. */
+    if (s == GDJobDone && was != GDJobDone && ![NSApp isActive] &&
+        ![[NSUserDefaults standardUserDefaults] boolForKey:@"GDNoBounce"])
+        [NSApp requestUserAttention:NSInformationalRequest];
 }
 
 - (NSArray *) orderMirrors:(NSArray *)m
@@ -1073,7 +1093,74 @@ static NSString *megabytes(double b)
 
 /* ------------------------------------------------------------- download */
 
+/* The gate: a download waits its turn.  Everything inside the download - a
+ * retry, the move to another mirror - goes straight to -beginDownload: and
+ * keeps the turn it already has. */
 - (void) startDownload:(GDInstallJob *)job
+{
+    if ([self activeDownloadCount] >= [self maxActiveDownloads]) {
+        [self setJob:job state:GDJobQueued status:@"Waiting for the other downloads..."];
+        return;
+    }
+    [self beginDownload:job];
+}
+
+- (int) maxActiveDownloads
+{
+    int n = (int)[[NSUserDefaults standardUserDefaults] integerForKey:@"GDMaxDownloads"];
+    return n > 0 ? (n > 8 ? 8 : n) : 1;
+}
+
+- (int) activeDownloadCount
+{
+    int i, n = 0;
+    for (i = 0; i < (int)[jobs count]; i++)
+        if ([[jobs objectAtIndex:i] state] == GDJobDownloading)
+            n++;
+    return n;
+}
+
+/* A turn has come free: the one that has been waiting longest takes it. */
+- (void) startNextQueued
+{
+    int i;
+    if ([self activeDownloadCount] >= [self maxActiveDownloads])
+        return;
+    for (i = 0; i < (int)[jobs count]; i++) {
+        GDInstallJob *j = [jobs objectAtIndex:i];
+        if (j->state == GDJobQueued && !j->cancelled) {
+            [self beginDownload:j];
+            return;
+        }
+    }
+}
+
+- (void) pause:(GDInstallJob *)job
+{
+    if (![self canPause:job])
+        return;
+    /* Cancelling the request keeps name.part, which the next attempt resumes
+     * from; job->cancelled would end the job instead, so it is not set. */
+    [job->request cancel];
+    [job->request release];
+    job->request = nil;
+    [self setJob:job state:GDJobPaused status:@"Paused"];
+}
+
+- (void) resume:(GDInstallJob *)job
+{
+    if (job == nil || job->state != GDJobPaused)
+        return;
+    job->attempts = 0;
+    [self startDownload:job];
+}
+
+- (BOOL) canPause:(GDInstallJob *)job
+{
+    return job != nil && (job->state == GDJobDownloading || job->state == GDJobQueued);
+}
+
+- (void) beginDownload:(GDInstallJob *)job
 {
     NSString *url, *host;
     if (job->reusedDownload) {
@@ -1162,7 +1249,7 @@ static NSString *megabytes(double b)
     if (job->switchingMirror) {
         job->mirror++;
         job->attempts = 0;
-        [self startDownload:job];
+        [self beginDownload:job];
         return;
     }
     if ([r error] != nil) {
@@ -1170,12 +1257,12 @@ static NSString *megabytes(double b)
          * before moving on; hard errors (404, expired signed link) move on. */
         if ([r isTransientFailure] && job->attempts < 2) {
             job->attempts++;
-            [self performSelector:@selector(startDownload:) withObject:job afterDelay:3];
+            [self performSelector:@selector(beginDownload:) withObject:job afterDelay:3];
             return;
         }
         job->mirror++;
         job->attempts = 0;
-        [self startDownload:job];
+        [self beginDownload:job];
         return;
     }
     if (elapsed > 2 && job->attemptBytes >= 0)

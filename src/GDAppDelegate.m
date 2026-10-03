@@ -212,29 +212,54 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         debugInstallStarted = YES;
         debugQuiet = 0;
     }
-    /* Optional: start the install of file N of the item page once loaded. */
+    /* Optional: start the install of file N of the item page once loaded.
+     * Several, comma separated, to see them queue behind each other. */
     if (get && ![get isEqualToString:@"update"] && ticks >= 6 && !debugInstallStarted) {
         NSView *v = [[[store window] contentView] documentView];
         if ([v respondsToSelector:@selector(detail)]) {
             GDItemDetail *det = [v performSelector:@selector(detail)];
-            int idx = [get intValue];
-            GDFile *f = nil;
-            if (det && [get isEqualToString:@"best"])
-                [GDCompat verdictForItem:det bestFile:&f];
-            else if (det && [get rangeOfString:@"."].location != NSNotFound) {
-                unsigned k;                     /* a file name */
-                for (k = 0; k < [[det files] count]; k++)
-                    if ([[[[det files] objectAtIndex:k] name] isEqualToString:get])
-                        f = [[det files] objectAtIndex:k];
-            } else if (det && idx < (int)[[det files] count])
-                f = [[det files] objectAtIndex:idx];
-            if (f) {
-                [[GDInstaller sharedInstaller] installFile:f ofItem:det];
-                debugInstallStarted = YES;
-                debugQuiet = 0;
-                ticks = MIN(ticks, 6);
+            NSEnumerator *wanted = [[get componentsSeparatedByString:@","] objectEnumerator];
+            NSString *one;
+            while ((one = [wanted nextObject]) != nil) {
+                int idx = [one intValue];
+                GDFile *f = nil;
+                if (det && [one isEqualToString:@"best"])
+                    [GDCompat verdictForItem:det bestFile:&f];
+                else if (det && [one rangeOfString:@"."].location != NSNotFound) {
+                    unsigned k;                 /* a file name */
+                    for (k = 0; k < [[det files] count]; k++)
+                        if ([[[[det files] objectAtIndex:k] name] isEqualToString:one])
+                            f = [[det files] objectAtIndex:k];
+                } else if (det && idx < (int)[[det files] count])
+                    f = [[det files] objectAtIndex:idx];
+                if (f) {
+                    [[GDInstaller sharedInstaller] installFile:f ofItem:det];
+                    debugInstallStarted = YES;
+                    debugQuiet = 0;
+                    ticks = MIN(ticks, 6);
+                }
             }
         }
+    }
+    /* Optional: take up a paused download again, N ticks in. */
+    if ([d integerForKey:@"GDDebugResumeAt"] > 0 && ticks == [d integerForKey:@"GDDebugResumeAt"]) {
+        NSArray *js = [[GDInstaller sharedInstaller] jobs];
+        unsigned k;
+        for (k = 0; k < [js count]; k++)
+            if ([[js objectAtIndex:k] state] == GDJobPaused) {
+                [[GDInstaller sharedInstaller] resume:[js objectAtIndex:k]];
+                break;
+            }
+    }
+    /* Optional: pause whatever is downloading, N ticks in. */
+    if ([d integerForKey:@"GDDebugPauseAt"] > 0 && ticks == [d integerForKey:@"GDDebugPauseAt"]) {
+        NSArray *js = [[GDInstaller sharedInstaller] jobs];
+        unsigned k;
+        for (k = 0; k < [js count]; k++)
+            if ([[GDInstaller sharedInstaller] canPause:[js objectAtIndex:k]]) {
+                [[GDInstaller sharedInstaller] pause:[js objectAtIndex:k]];
+                break;
+            }
     }
     /* Optional: once an install is running, switch to the Library, which is
      * where its progress is shown.  With GDDebugSnapshotAt this photographs a

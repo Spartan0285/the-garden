@@ -203,8 +203,20 @@ static BOOL recordFinished(NSDictionary *h)
                                       [NSValue valueWithRect:r], nil];
             float bx = NSMaxX(r) - BTN_W - 6;
             if (j != nil && [j isActive]) {
-                [row addObject:[self barFor:j at:NSMakeRect(r.origin.x + 84, y + 44,
-                                                            w - 2 * MARGIN - 200, 12)]];
+                /* No bar for a job that is not moving: an indeterminate one
+                 * reads as "finished" in a still, and a waiting download has
+                 * nothing to report yet. */
+                if ([j state] != GDJobQueued && [j state] != GDJobPaused)
+                    [row addObject:[self barFor:j at:NSMakeRect(r.origin.x + 84, y + 44,
+                                                                w - 2 * MARGIN - 200, 12)]];
+                /* Waiting its turn, or stopped on purpose: either can be let
+                 * go of and taken up again without losing what has arrived. */
+                if ([inst canPause:j])
+                    [self button:@"Pause" at:NSMakeRect(bx, y + 6, BTN_W, BTN_H)
+                          action:@selector(pausePast:) tag:k];
+                else if ([j state] == GDJobPaused)
+                    [self button:@"Resume" at:NSMakeRect(bx, y + 6, BTN_W, BTN_H)
+                          action:@selector(resumePast:) tag:k];
                 [self button:@"Cancel" at:NSMakeRect(bx, y + 28, BTN_W, BTN_H)
                       action:@selector(cancelPast:) tag:k];
             } else if ([[e objectForKey:@"state"] isEqualToString:@"retrying"]) {
@@ -536,6 +548,22 @@ static NSString *pastLine(NSDictionary *h, GDInstallJob *j, NSColor **ink)
     NSArray *lib = [[GDInstaller sharedInstaller] library];
     int t = [sender tag];
     return t >= 0 && t < (int)[lib count] ? [lib objectAtIndex:t] : nil;
+}
+
+- (void) pausePast:(id)s
+{
+    NSDictionary *h = [self recordFor:s];
+    GDInstallJob *j = h ? [[GDInstaller sharedInstaller] jobForHistoryEntry:h] : nil;
+    if (j != nil)
+        [[GDInstaller sharedInstaller] pause:j];
+}
+
+- (void) resumePast:(id)s
+{
+    NSDictionary *h = [self recordFor:s];
+    GDInstallJob *j = h ? [[GDInstaller sharedInstaller] jobForHistoryEntry:h] : nil;
+    if (j != nil)
+        [[GDInstaller sharedInstaller] resume:j];
 }
 
 - (void) cancelPast:(id)s
