@@ -74,6 +74,23 @@ static UInt32     gGardenIP;
 
 /* ------------------------------------------------------------ transcript */
 
+static void buildMenus(void)
+{
+    MenuHandle m;
+    /* An application with no menu bar can only be quit by its close box, and
+     * if that is ever missed the copy stays open - which is how several of
+     * these ended up running at once. */
+    m = NewMenu(128, "\p\024");                 /* the apple */
+    AppendMenu(m, "\pAbout The Garden...");
+    InsertMenu(m, 0);
+    AppendResMenu(m, 'DRVR');
+
+    m = NewMenu(129, "\pFile");
+    AppendMenu(m, "\pClose/W;(-;Quit/Q");
+    InsertMenu(m, 0);
+    DrawMenuBar();
+}
+
 static void logOpen(void)
 {
     short  vRef = 0;
@@ -83,10 +100,28 @@ static void logOpen(void)
      * set, and a run's own account of itself should be findable. */
     if (FindFolder(kOnSystemDisk, kPreferencesFolderType, kCreateFolder,
                    &vRef, &dirID) != noErr) { vRef = 0; dirID = 0; }
-    (void) FSMakeFSSpec(vRef, dirID, "\pGardenNet.log", &spec);
-    (void) FSpDelete(&spec);
-    if (FSpCreate(&spec, 'ttxt', 'TEXT', 0) != noErr) return;
-    if (FSpOpenDF(&spec, fsWrPerm, &gLogRef) != noErr) gLogRef = 0;
+    /* If another copy of this application still has the transcript open, its
+     * own write permission excludes us and we would run on writing nowhere -
+     * which reads from another machine exactly like never having started.  So
+     * take the next name along instead. */
+    {
+        short n;
+        for (n = 0; n < 6; n++) {
+            Str63 nm;
+            char  buf[32];
+            if (n == 0) strcpy(buf, "GardenNet.log");
+            else        sprintf(buf, "GardenNet %d.log", (int) n + 1);
+            nm[0] = (unsigned char) strlen(buf);
+            memcpy(nm + 1, buf, nm[0]);
+            (void) FSMakeFSSpec(vRef, dirID, nm, &spec);
+            if (n == 0) (void) FSpDelete(&spec);
+            if (FSpCreate(&spec, 'ttxt', 'TEXT', 0) != noErr && n == 0) {
+                /* exists and is in use: try the next name */
+            }
+            if (FSpOpenDF(&spec, fsWrPerm, &gLogRef) == noErr) return;
+            gLogRef = 0;
+        }
+    }
 }
 
 static void logLine(const char *s)
@@ -571,7 +606,14 @@ static void pump(void)
     case mouseDown: {
         WindowPtr w;
         short part = FindWindow(ev.where, &w);
-        if (part == inDrag)      DragWindow(w, ev.where, &qd.screenBits.bounds);
+        if (part == inMenuBar) {
+            long  choice = MenuSelect(ev.where);
+            short menu = (short)(choice >> 16), item = (short)(choice & 0xFFFF);
+            if (menu == 129 && item == 3) gQuit = true;      /* File > Quit  */
+            else if (menu == 129 && item == 1) gQuit = true; /* File > Close */
+            HiliteMenu(0);
+        }
+        else if (part == inDrag) DragWindow(w, ev.where, &qd.screenBits.bounds);
         else if (part == inGoAway && TrackGoAway(w, ev.where)) gQuit = true;
         else if (part == inContent) {
             Point p = ev.where;
@@ -585,7 +627,11 @@ static void pump(void)
     }
     case keyDown: {
         char c = (char)(ev.message & charCodeMask);
-        if (c == 'q' && (ev.modifiers & cmdKey)) { gQuit = true; break; }
+        if ((ev.modifiers & cmdKey) && (c == 'q' || c == 'Q' ||
+                                        c == 'w' || c == 'W')) {
+            gQuit = true;
+            break;
+        }
         if (gTyping && gState != ST_BUSY) {
             long n = (long) strlen(gQuery);
             if (c == '\r' || c == 3) {              /* Return or Enter */
@@ -616,6 +662,7 @@ int main(void)
     gWin = NewWindow(0L, &bounds, "\pThe Garden", true, documentProc,
                      (WindowPtr)-1L, true, 0);
     SetPort(gWin);
+    buildMenus();
     logOpen();
     logLine("The Garden, on Mac OS 9");
 
