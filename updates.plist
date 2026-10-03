@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3.8 Alpha</string>
+	<string>0.3.9 Alpha</string>
 	<key>build</key>
-	<string>15</string>
+	<string>16</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.8/TheGarden-0.3.8.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.9/TheGarden-0.3.9.zip</string>
 	<key>sha256</key>
-	<string>25f96ce4f6f11b6040b001c4c0f72abe62ca711d546645038e52bf53e449007b</string>
+	<string>9a04dffe80bf95f9e8ea4cdaad83abae2dacba8df551dfdc6acdb2c6a4137bef</string>
 	<key>size</key>
-	<string>7024771</string>
+	<string>7040788</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Reaches the Macintosh Garden again while the site's security certificate is expired: the connection stays encrypted and the site's identity is still checked, and the window says when an expired certificate was accepted.</string>
+	<string>Downloads now wait for each other instead of racing, and can be paused and taken up again where they left off. A title you have installed asks once whether it actually ran, and item pages show what everyone answered. Searching can use a shared index that keeps working when the Garden's own search does not.</string>
 	<key>signature</key>
-	<string>/Mugg9Gjp/FABps14G55ODQ9UWFO4qaoYHMR6EggGpUbd3jNvbZ4CNR3kSKUDebci1VQLH6HMhtISOVur1oKCA==</string>
+	<string>vCvslvebC+kVwaPFz4q4MDyMwy2wjqB7xB5+XSeqUXHxzTdgFr7U3raG8zIDcXlDwidxcYLGY89mqB9mZHhhBw==</string>
 </dict>
 </plist>
