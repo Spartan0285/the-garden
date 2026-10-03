@@ -3,6 +3,7 @@
 #import "GDItemView.h"
 #import "GDLibraryView.h"
 #import "GDGarden.h"
+#import "GDContribute.h"
 #import "GDWebWindow.h"
 #import "GDSheepShaver.h"
 #import "GDAbout.h"
@@ -19,7 +20,7 @@ static NSString *TBFilter = @"filter";
 enum { SegFeatured, SegApps, SegGames, SegCategories, SegLibrary, SegUpdates };
 
 /* Request purposes (tag) */
-enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed };
+enum { ReqShelf = 1, ReqSearchToken, ReqSearch, ReqFeed, ReqIndexSearch };
 
 @interface GDStoreController (Private)
 - (void) rebuildSections;
@@ -598,8 +599,11 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
 
 - (void) searchEntered:(id)sender
 {
+    /* A search typed again is a search that should try the index again. */
     NSString *k = [[searchField stringValue] stringByTrimmingCharactersInSet:
                       [NSCharacterSet whitespaceCharacterSet]];
+    [indexFailedQuery release];
+    indexFailedQuery = nil;
     if ([k length])
         [self go:[NSDictionary dictionaryWithObjectsAndKeys:@"search", @"kind", k, @"keys",
                      @"Search", @"title", nil]];
@@ -632,8 +636,19 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
 - (void) runSearch:(NSString *)keys page:(int)n shelf:(GDShelf *)sh
 {
     GDHTTPRequest *r;
+    NSURL *index = n == 0 && ![keys isEqualToString:indexFailedQuery]
+                 ? [GDGarden indexSearchURL:keys limit:120] : nil;
     sh->loading = YES;
     [(GDGridView *)pageView reload];
+    /* The index first: one GET, no session, no form token, and an order that
+     * puts the title you typed at the top.  The Garden's own search is still
+     * there for anything the index cannot answer. */
+    if (index != nil) {
+        r = [self request:index tag:ReqIndexSearch info:sh];
+        [r setCacheTTL:900];
+        [r start];
+        return;
+    }
     if (n > 0) {
         r = [self request:[GDGarden searchResultsURL:keys page:n] tag:ReqSearch info:sh];
         [r setCacheTTL:3600];
@@ -660,6 +675,23 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
     if (![pageView isKindOfClass:[GDGridView class]] || ![[(GDGridView *)pageView shelves] containsObject:sh])
         return;
 
+    if ([r tag] == ReqIndexSearch) {
+        GDListing *IL = [r error] == nil ? [GDGarden parseIndexResults:[r data]] : nil;
+        NSString *keys = [page objectForKey:@"keys"];
+        /* No answer, or no titles in it: ask the Garden itself rather than
+         * telling someone their search found nothing. */
+        if (IL == nil || [[IL items] count] == 0) {
+            [indexFailedQuery release];
+            indexFailedQuery = [keys copy];
+            [self runSearch:keys page:0 shelf:sh];
+            return;
+        }
+        sh->loading = NO;
+        [sh->entries addObjectsFromArray:[IL items]];
+        sh->hasMore = NO;
+        [(GDGridView *)pageView reload];
+        return;
+    }
     if ([r tag] == ReqSearchToken) {
         searchToken = [[GDGarden parseFormToken:[r data]] retain];
         if (searchToken == nil) {
@@ -688,6 +720,11 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
         }
     } else {
         [sh->entries addObjectsFromArray:[L items]];
+        /* The rows of a page the reader opened, offered to the shared index
+         * (Settings; off until it is switched on).  Listings only: a search
+         * result would say what was searched for. */
+        if ([r tag] == ReqShelf)
+            [GDContribute offerItems:[L items]];
         /* Say it rather than excuse it quietly. */
         if ([r usedExpiredCertificate]) {
             [sh->subtitle autorelease];

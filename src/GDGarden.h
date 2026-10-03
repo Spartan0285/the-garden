@@ -119,6 +119,12 @@ typedef enum {
 + (NSURL *) listURLForSection:(NSString *)section selector:(NSString *)sel page:(int)page;
 + (NSURL *) itemURL:(NSString *)path;
 + (NSURL *) searchResultsURL:(NSString *)keys page:(int)page;
+/* The catalogue index (server/cloudflare/functions/api/search.js), which
+ * answers in one GET what the site's own search needs a session, a form token
+ * and a POST for - and keeps answering when the site is down.  Changeable
+ * without a new build: defaults write org.macintoshgarden.store GDSearchURL
+ * <address>, or "" to use only the Garden's own search. */
++ (NSURL *) indexSearchURL:(NSString *)keys limit:(int)limit;
 + (NSURL *) absoluteURL:(NSString *)href;
 
 /* Parsers; all take the raw page bytes. */
@@ -129,6 +135,9 @@ typedef enum {
 
 + (GDListing *) parseListing:(NSData *)html;
 + (GDListing *) parseSearch:(NSData *)html;
+/* The index's answer: tab-separated, one title per line.  Tiger has no JSON
+ * parser and this needs none. */
++ (GDListing *) parseIndexResults:(NSData *)tsv;
 + (GDItemDetail *) parseItem:(NSData *)html path:(NSString *)path;
 + (NSArray *) parseCategories:(NSData *)html section:(NSString *)section; /* {name, path} */
 + (NSString *) parseFormToken:(NSData *)html;

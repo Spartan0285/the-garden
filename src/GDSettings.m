@@ -1,11 +1,12 @@
 #import "GDSettings.h"
 #import "GDInstaller.h"
 #import "GDStyle.h"
+#import "GDContribute.h"
 
 NSString *GDSettingsChangedNotification = @"GDSettingsChanged";
 
 #define SET_W 470.0
-#define SET_H 248.0
+#define SET_H 372.0
 #define PAD 24.0
 #define HIDDEN_KEY @"GDUpdatesTabHidden"
 
@@ -42,6 +43,22 @@ NSString *GDSettingsChangedNotification = @"GDSettingsChanged";
     GDDrawText(@"An update you ignore is not offered again. A version newer than the one "
                 "you ignored still is.",
                NSMakeRect(PAD, 202, w - 2 * PAD, 32), [NSFont systemFontOfSize:11],
+               GDSubtleTextColor(), NO);
+
+    [[NSColor colorWithCalibratedWhite:0.87 alpha:1] set];
+    NSRectFill(NSMakeRect(PAD, 238, w - 2 * PAD, 1));
+
+    GDDrawText(@"The Shared Search Index", NSMakeRect(PAD, 252, w - 2 * PAD, 20),
+               [NSFont boldSystemFontOfSize:14], [NSColor blackColor], YES);
+    GDDrawText(@"Searching the Garden's own site is slow and stops working when the site "
+                "does. The Garden can search a shared index instead - built from the "
+                "listing rows that copies of this app have already read, since the site "
+                "asks not to be crawled. Nothing is crawled and the site sees no extra "
+                "requests.\n"
+                "Sent: the public catalogue row - title, year, category, author, rating, "
+                "thumbnail, first line. Never sent: who you are, what you searched for, "
+                "what you have installed, or anything that would tell two batches apart.",
+               NSMakeRect(PAD, 302, w - 2 * PAD, 64), [NSFont systemFontOfSize:11],
                GDSubtleTextColor(), NO);
 }
 
@@ -119,6 +136,18 @@ static GDSettings *sharedSettings;
         [unignoreButton setAction:@selector(stopIgnoring:)];
         [view addSubview:unignoreButton];
 
+        contributeBox = [[NSButton alloc] initWithFrame:
+                            NSMakeRect(PAD, 276, SET_W - 2 * PAD, 20)];
+        [contributeBox setButtonType:NSSwitchButton];
+        [contributeBox setTitle:@"Help build the shared search index"];
+        [contributeBox setFont:[NSFont systemFontOfSize:12]];
+        [contributeBox setTarget:self];
+        [contributeBox setAction:@selector(toggleContribute:)];
+        [view addSubview:contributeBox];
+
+        contributedLine = [[self label:NSMakeRect(PAD, 346, SET_W - 2 * PAD, 18)] retain];
+        [view addSubview:contributedLine];
+
         [window center];
     }
     [self refresh];
@@ -134,6 +163,21 @@ static GDSettings *sharedSettings;
                : (n == 1 ? @"One update is being ignored."
                          : [NSString stringWithFormat:@"%u updates are being ignored.", n])];
     [unignoreButton setEnabled:n > 0];
+
+    [contributeBox setState:[GDContribute isEnabled] ? NSOnState : NSOffState];
+    {
+        unsigned c = [GDContribute contributedCount];
+        [contributedLine setStringValue:
+            ![GDContribute isEnabled] ? @"This copy is not contributing."
+            : (c == 0 ? @"Nothing contributed yet."
+                      : [NSString stringWithFormat:@"%u rows contributed from pages you opened.", c])];
+    }
+}
+
+- (void) toggleContribute:(id)sender
+{
+    [GDContribute setEnabled:([contributeBox state] == NSOnState)];
+    [self refresh];
 }
 
 - (void) toggleUpdatesTab:(id)sender

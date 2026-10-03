@@ -1,4 +1,4 @@
-# The feedback endpoint
+# The endpoints
 
 *Putting this, the About window and the link policy into another app:
 [docs/ADDING-AN-APP.md](../../docs/ADDING-AN-APP.md).*
@@ -9,9 +9,68 @@ the same hostname, on the free plan.
 
     functions/api/feedback.js        POST a report
     functions/api/shot/[[path]].js   GET a report's screenshot
+    functions/api/search.js          GET the catalogue index, searched
+    functions/api/catalog.js         POST rows for it; GET how many there are
 
 Copy both into the repository your Pages site is built from, keeping the
 `functions/api/...` paths. Nothing else about the site changes.
+
+## The search index
+
+The Garden's own search is a Drupal form - a session, a form token, a POST, a
+page of HTML - and it is the first thing to go when the site is unwell; on
+3 October 2026 it answered 502 for a day, and the app could not search at all.
+`/api/search` answers the same question from one table, in a few kilobytes of
+tab-separated text, because what reads it is a Mac OS X 10.4 application with
+no JSON parser.
+
+    GET /api/search?q=dark+castle          best first, 60 at a time
+    GET /api/search?q=...&list=games       one listing only
+    GET /api/search?q=...&format=json      the same thing, readable
+
+**Where the rows come from.** Not from a crawl. macintoshgarden.org's
+robots.txt is `User-agent: * / Disallow: /`, and when that was tested - 27
+pages, one at a time, 1.5 s apart, with a user agent saying who we were - the
+whole address was blocked at their firewall within a minute, which cost every
+Mac here the Garden, the app included. That is the site's answer and it is a
+fair one. `tools/garden-index.mjs` still exists but refuses to run.
+
+So the rows come from copies of the app: when someone opens a listing page,
+which the app fetches to show it, the parsed rows are offered to
+`/api/catalog`. The site sees exactly the traffic it already saw, and less of
+it once searching stops going there.
+
+It is **off until it is switched on** (Settings → The Shared Search Index),
+because what a copy sends still says something about which pages were opened
+on that Mac. What is sent is a public catalogue row - path, title, year,
+category, author, rating, thumbnail, first line - with no identifier of any
+kind, no account, no session, no timestamp of the app's making, in a batch
+shuffled out of reading order, and never for a search result, only a listing.
+Nothing is queued on disk between launches, so there is no record of browsing
+anywhere to be read later.
+
+**What the server will take.** A path has to look like `/apps/x` or
+`/games/x`; a thumbnail has to be on macintoshgarden.org; text is capped and
+stripped of control characters; a batch is at most 500 rows and 256 KB, and
+one address may send 40 batches an hour. A title, once learned, is never
+rewritten - 1986 software does not get renamed, and that is what stops one
+batch defacing the catalogue. The other text fills a gap and never replaces
+what is there; the rating, the vote count and the thumbnail follow the latest
+report, being bounded and checked. Each row counts how many times it has been
+seen, so a row nobody else has confirmed is visible as such.
+
+`/api/search` reads the `INDEX_DB` database when there is one, then a
+`CATALOG` R2 bucket, then `/catalog/catalog.tsv.gz` on the site itself, so it
+works on a plain Pages project with nothing configured - it just has nothing
+to say until something fills it.
+
+    D1 → Create database, e.g. `garden-index`, and bind it as `INDEX_DB`.
+
+The app's two addresses are preferences, so either can be moved, or switched
+off entirely with an empty string:
+
+    defaults write org.macintoshgarden.store GDSearchURL  https://example.com/api/search
+    defaults write org.macintoshgarden.store GDCatalogURL ""
 
 ## What a report becomes
 

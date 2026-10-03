@@ -23,6 +23,9 @@
     NSView *pageView;
     NSMutableArray *requests;   /* in flight for the current page */
     NSString *searchToken;
+    /* The query the index could not answer, so it is asked once and the
+     * Garden's own search takes it from there. */
+    NSString *indexFailedQuery;
     NSWindow *shotWindow;
     NSMutableSet *hiddenVerdicts;   /* GDVerdict NSNumbers hidden from listings */
     NSImage *dockIcon;

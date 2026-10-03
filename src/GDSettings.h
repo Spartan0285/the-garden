@@ -3,8 +3,8 @@
  *
  * Small on purpose: the things worth keeping between launches that are not
  * already a menu item.  Right now that is the Updates tab, which can be
- * turned off altogether, and the updates the user has told the app to stop
- * offering.
+ * turned off altogether, the updates the user has told the app to stop
+ * offering, and whether this copy helps build the shared search index.
  */
 #import <Cocoa/Cocoa.h>
 
@@ -17,6 +17,8 @@ extern NSString *GDSettingsChangedNotification;
     NSButton *updatesTabBox;
     NSButton *unignoreButton;
     NSTextField *ignoredLine;
+    NSButton *contributeBox;
+    NSTextField *contributedLine;
 }
 + (void) show;
 

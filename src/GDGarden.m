@@ -339,6 +339,68 @@ static int currentPage(xmlXPathContextPtr ctx)
     return [self absoluteURL:p];
 }
 
+/* One endpoint for the index, changeable without a new build; empty means
+ * "ask the Garden itself", which is what the app did before there was one. */
+static NSString * const GDSearchDefaultURL = @"https://www.cytrusretro.com/api/search";
+
++ (NSURL *) indexSearchURL:(NSString *)keys limit:(int)limit
+{
+    NSString *base = [[NSUserDefaults standardUserDefaults] stringForKey:@"GDSearchURL"];
+    if (base == nil)
+        base = GDSearchDefaultURL;
+    if ([base length] == 0 || [keys length] == 0)
+        return nil;
+    return [NSURL URLWithString:[NSString stringWithFormat:@"%@?q=%@&limit=%d",
+                                    base, GDFormEncode(keys), limit]];
+}
+
+/* #garden-search<tab>1<tab><built><tab><count>, a column line, then one title
+ * per line in the order they should be shown. */
++ (GDListing *) parseIndexResults:(NSData *)tsv
+{
+    NSString *body = [[[NSString alloc] initWithData:tsv encoding:NSUTF8StringEncoding] autorelease];
+    NSMutableArray *items = [NSMutableArray array];
+    GDListing *L = [[[GDListing alloc] init] autorelease];
+    NSEnumerator *lines;
+    NSString *line;
+    BOOL sawHeader = NO;
+
+    if (body == nil)
+        return nil;
+    lines = [[body componentsSeparatedByString:@"\n"] objectEnumerator];
+    while ((line = [lines nextObject]) != nil) {
+        NSArray *f;
+        GDItem *it;
+        NSString *sec, *slug;
+        if ([line hasPrefix:@"#garden-search"]) { sawHeader = YES; continue; }
+        if ([line hasPrefix:@"#"] || [line length] == 0)
+            continue;
+        if (!sawHeader)
+            return nil;                 /* not ours: let the caller fall back */
+        f = [line componentsSeparatedByString:@"\t"];
+        if ([f count] < 3 || !splitItemPath([f objectAtIndex:0], &sec, &slug))
+            continue;
+        it = [[[GDItem alloc] init] autorelease];
+        it->section = [sec retain];
+        it->slug = [slug retain];
+        it->title = [[f objectAtIndex:1] retain];
+        if ([f count] > 3) it->year = [[f objectAtIndex:3] retain];
+        if ([f count] > 4) it->category = [[f objectAtIndex:4] retain];
+        if ([f count] > 5) it->author = [[f objectAtIndex:5] retain];
+        if ([f count] > 6) it->rating = [[f objectAtIndex:6] floatValue];
+        if ([f count] > 7) it->votes = [[f objectAtIndex:7] intValue];
+        if ([f count] > 8 && [[f objectAtIndex:8] length]) it->thumbURL = [[f objectAtIndex:8] retain];
+        if ([f count] > 9 && [[f objectAtIndex:9] length]) it->blurb = [[f objectAtIndex:9] retain];
+        [items addObject:it];
+    }
+    if (!sawHeader)
+        return nil;
+    L->items = [items retain];
+    L->page = 0;
+    L->pageCount = 1;           /* the index answers in one go */
+    return L;
+}
+
 + (GDListing *) parseListing:(NSData *)html
 {
     htmlDocPtr doc = parseHTML(html);

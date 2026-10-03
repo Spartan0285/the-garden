@@ -22,6 +22,12 @@ no helper on another machine.
   same kind (same variant, higher version); Update installs it and moves the
   old copy to the Trash. The count shows on the tab and the Dock icon, which
   also shows download progress.
+- **Search:** a shared index answers in one request, in the order a person
+  would expect, and keeps answering when the site itself is down. It is built
+  only from listing rows that copies of the app have already fetched - nothing
+  crawls the Garden, whose robots.txt asks that nothing does - and a copy
+  contributes only if asked to in Settings. The Garden's own search is still
+  there for anything the index cannot answer.
 - **Light on the site:** pages are cached on disk (item pages 3 days,
   listings 6 hours, the feed 1 hour) and shown offline when the network is
   down. The Garden only fetches what you open; the site's robots.txt asks
