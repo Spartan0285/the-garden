@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3.9 Alpha</string>
+	<string>0.3.10 Alpha</string>
 	<key>build</key>
-	<string>16</string>
+	<string>17</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.9/TheGarden-0.3.9.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.10/TheGarden-0.3.10.zip</string>
 	<key>sha256</key>
-	<string>9a04dffe80bf95f9e8ea4cdaad83abae2dacba8df551dfdc6acdb2c6a4137bef</string>
+	<string>d09d844584606a8a76dc0f93bc9702c17dc8da831da543d687f84c1e082c9780</string>
 	<key>size</key>
-	<string>7040788</string>
+	<string>7043707</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Downloads now wait for each other instead of racing, and can be paused and taken up again where they left off. A title you have installed asks once whether it actually ran, and item pages show what everyone answered. Searching can use a shared index that keeps working when the Garden's own search does not.</string>
+	<string>Reaches the Macintosh Garden again. The site has been serving an incomplete certificate chain since 3 October, which stopped every copy with "SSL certificate problem: unable to get local issuer certificate"; the app now supplies the missing issuer itself.</string>
 	<key>signature</key>
-	<string>vCvslvebC+kVwaPFz4q4MDyMwy2wjqB7xB5+XSeqUXHxzTdgFr7U3raG8zIDcXlDwidxcYLGY89mqB9mZHhhBw==</string>
+	<string>xVScH+/rRpResCN35UK7g/C6IQVm6SWKYrLypkzpMpczL0DjCWndIff6O35chM+ycmhOtgq7KrFCCCr8+BGjAg==</string>
 </dict>
 </plist>
