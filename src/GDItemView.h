@@ -11,6 +11,7 @@
 
 @interface NSObject (GDItemViewDelegate)
 - (void) itemView:(id)v getFile:(GDFile *)f ofItem:(GDItemDetail *)d;
+- (void) itemView:(id)v getAllFilesOfItem:(GDItemDetail *)d;
 - (void) itemView:(id)v openInstalled:(NSDictionary *)entry;
 - (void) itemView:(id)v showScreenshot:(NSString *)url;
 - (void) itemView:(id)v showJob:(GDInstallJob *)job;

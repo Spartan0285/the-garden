@@ -63,6 +63,8 @@ typedef enum {
     volatile BOOL cancelled;
     double started;
     NSArray *replaces;         /* an update: installed paths to trash once done */
+    NSString *batch;           /* "get all": the other files of the same title,
+                                  which must not trash each other's work */
 }
 - (GDItemDetail *) item;
 - (GDFile *) file;
@@ -90,6 +92,10 @@ typedef enum {
 + (GDInstaller *) sharedInstaller;
 
 - (GDInstallJob *) installFile:(GDFile *)f ofItem:(GDItemDetail *)d;
+/* Every file of one title, queued together: they wait for each other like any
+ * other downloads, they do not replace each other once installed, and the
+ * Library holds them as one title with all of its parts. */
+- (NSArray *) installFiles:(NSArray *)files ofItem:(GDItemDetail *)d;
 - (void) cancel:(GDInstallJob *)job;
 - (void) retry:(GDInstallJob *)job;
 

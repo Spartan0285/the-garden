@@ -799,6 +799,37 @@ static NSDictionary *pageOf(NSString *kind, NSString *title)
 
 /* ------------------------------------------------------- item delegate */
 
+- (void) itemView:(id)v getAllFilesOfItem:(GDItemDetail *)d
+{
+    NSArray *files = [d files];
+    unsigned i, doubtful = 0;
+    if ([files count] == 0)
+        return;
+    for (i = 0; i < [files count]; i++) {
+        GDVerdict v2 = [GDCompat verdictForFile:[files objectAtIndex:i]
+                                   architecture:[d architecture]];
+        if (![GDCompat runsHere:v2] || v2 == GDVerdictUnknown)
+            doubtful++;
+    }
+    /* Asked once for the whole lot rather than once per file. */
+    if (doubtful > 0) {
+        NSString *note = doubtful == [files count]
+            ? @"None of them is known to run on this Mac. Download them anyway?"
+            : [NSString stringWithFormat:@"%u of them %@ not known to run on this Mac. "
+                                          "Download them anyway?",
+                  doubtful, doubtful == 1 ? @"is" : @"are"];
+        int r = NSRunAlertPanel([NSString stringWithFormat:
+                    GDU("Download all %u files of \xE2\x80\x9C%@\xE2\x80\x9D?"),
+                    (unsigned)[files count], [d title]],
+                @"%@", @"Download All", @"Cancel", nil, note);
+        if (r != NSAlertDefaultReturn)
+            return;
+    }
+    [[GDInstaller sharedInstaller] installFiles:files ofItem:d];
+    /* The queue is in the Library, which is where they are now. */
+    [self showLibrary:nil];
+}
+
 - (void) itemView:(id)v getFile:(GDFile *)f ofItem:(GDItemDetail *)d
 {
     GDVerdict verdict = [GDCompat verdictForFile:f architecture:[d architecture]];

@@ -769,6 +769,18 @@ static float textHeight(NSString *s, NSFont *f, float w)
         [it setTarget:self];
         [it setTag:(int)i];
     }
+    /* Some of these titles are a game, its updater, a map pack and three disk
+     * images, and wanting the lot is the ordinary case rather than the odd
+     * one.  They queue together and wait for each other. */
+    if ([files count] > 1) {
+        NSMenuItem *all;
+        [m addItem:[NSMenuItem separatorItem]];
+        all = [m addItemWithTitle:[NSString stringWithFormat:@"Get All %u Downloads",
+                                      (unsigned)[files count]]
+                           action:@selector(getMenuChose:) keyEquivalent:@""];
+        [all setTarget:self];
+        [all setTag:-2];
+    }
     /* A pull-down shows its first item as the button, so that one carries the
      * suggestion's size and is never chosen. */
     [getMenu setMenu:m];
@@ -777,6 +789,11 @@ static float textHeight(NSString *s, NSFont *f, float w)
 - (void) getMenuChose:(id)sender
 {
     int t = [sender tag];
+    if (t == -2) {
+        if ([delegate respondsToSelector:@selector(itemView:getAllFilesOfItem:)])
+            [delegate itemView:self getAllFilesOfItem:detail];
+        return;
+    }
     if (t >= 0 && t < (int)[[detail files] count] &&
         [delegate respondsToSelector:@selector(itemView:getFile:ofItem:)])
         [delegate itemView:self getFile:[[detail files] objectAtIndex:t] ofItem:detail];

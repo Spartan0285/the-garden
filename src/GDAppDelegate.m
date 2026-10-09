@@ -218,8 +218,18 @@ static NSMenuItem *addItem(NSMenu *m, NSString *title, SEL action, NSString *key
         NSView *v = [[[store window] contentView] documentView];
         if ([v respondsToSelector:@selector(detail)]) {
             GDItemDetail *det = [v performSelector:@selector(detail)];
-            NSEnumerator *wanted = [[get componentsSeparatedByString:@","] objectEnumerator];
+            NSEnumerator *wanted;
             NSString *one;
+            /* "all" is the Get menu's "Get All N Downloads", which the
+             * harness cannot reach with a mouse. */
+            if (det && [get isEqualToString:@"all"]) {
+                [[GDInstaller sharedInstaller] installFiles:[det files] ofItem:det];
+                debugInstallStarted = YES;
+                debugQuiet = 0;
+                ticks = MIN(ticks, 6);
+                return;
+            }
+            wanted = [[get componentsSeparatedByString:@","] objectEnumerator];
             while ((one = [wanted nextObject]) != nil) {
                 int idx = [one intValue];
                 GDFile *f = nil;

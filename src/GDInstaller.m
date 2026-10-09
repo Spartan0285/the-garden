@@ -239,6 +239,7 @@ static NSString *safeName(NSString *s)
 @interface GDInstaller (Private)
 - (void) changed:(GDInstallJob *)job;
 - (void) startDownload:(GDInstallJob *)job;
+- (void) postProcessLocked:(GDInstallJob *)job;
 - (void) beginDownload:(GDInstallJob *)job;
 - (void) startNextQueued;
 - (int) activeDownloadCount;
@@ -252,6 +253,16 @@ static NSString *safeName(NSString *s)
 - (GDFile *) fileFromRecord:(NSDictionary *)h;
 - (GDItemDetail *) detailFromRecord:(NSDictionary *)h;
 @end
+
+/* Unpacking, mounting and installing happen one job at a time.
+ *
+ * They are this Mac's own work rather than the network's, and two of them at
+ * once on a G4 are slower than one after the other; worse, two disk images
+ * from the same title carry the same volume name, so the second attach fails
+ * and hdiutil says so in English - which is what crashed 0.3.10.  Downloads
+ * still overlap by the usual rule: a job gives up its download turn as soon
+ * as the bytes are in. */
+static NSLock *gUnpackLock;
 
 /* How many past downloads to keep.  Only records nothing is working on are
  * dropped, oldest first. */
@@ -584,6 +595,10 @@ static int compareVersions(NSArray *a, NSArray *b)
     if ((self = [super init]) == nil)
         return nil;
     jobs = [[NSMutableArray alloc] init];
+    /* Made here, on the main thread: two worker threads arriving at a nil
+     * lock would each make one, and neither would exclude the other. */
+    if (gUnpackLock == nil)
+        gUnpackLock = [[NSLock alloc] init];
     dir = [[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES)
                objectAtIndex:0] stringByAppendingPathComponent:@"The Garden"];
     [[NSFileManager defaultManager] createDirectoryAtPath:[dir stringByDeletingLastPathComponent]
@@ -1061,6 +1076,29 @@ static NSString *megabytes(double b)
     }
     [self startDownload:job];
     return job;
+}
+
+- (NSArray *) installFiles:(NSArray *)files ofItem:(GDItemDetail *)d
+{
+    NSString *mark = [NSString stringWithFormat:@"%@ %.0f", [d path],
+                         CFAbsoluteTimeGetCurrent()];
+    NSMutableArray *started = [NSMutableArray array];
+    unsigned i;
+    for (i = 0; i < [files count]; i++) {
+        GDInstallJob *job = [self installFile:[files objectAtIndex:i] ofItem:d];
+        if (job == nil)
+            continue;
+        job->batch = [mark copy];
+        /* Only the first of a batch stands in for what was installed before.
+         * Without this each file in turn would trash the one before it and
+         * the title would end up with whichever happened to finish last. */
+        if ([started count] > 0) {
+            [job->replaces release];
+            job->replaces = nil;
+        }
+        [started addObject:job];
+    }
+    return started;
 }
 
 - (void) retry:(GDInstallJob *)job
@@ -1549,7 +1587,16 @@ static BOOL isDiskImage(NSString *p)
                                           @"diskimage-class=CRawDiskImage", nil]];
         [args addObject:p];
         out = runTask(@"/usr/bin/hdiutil", args, &st);
-        plist = [out propertyList];
+        /* -[NSString propertyList] raises when what it is given is not a
+         * property list, and hdiutil prints a line of English when it cannot
+         * attach ("hdiutil: attach failed - ..."), which is how a failed
+         * attach once took the whole application down.  NSPropertyList-
+         * Serialization answers with nil instead. */
+        plist = st == 0 ? (NSDictionary *)[NSPropertyListSerialization
+                    propertyListFromData:[out dataUsingEncoding:NSUTF8StringEncoding]
+                        mutabilityOption:NSPropertyListImmutable
+                                  format:NULL errorDescription:NULL]
+                        : nil;
         ents = [plist isKindOfClass:[NSDictionary class]] ? [plist objectForKey:@"system-entities"] : nil;
         for (i = 0; i < [ents count]; i++) {
             NSString *mp = [[ents objectAtIndex:i] objectForKey:@"mount-point"];
@@ -1561,6 +1608,29 @@ static BOOL isDiskImage(NSString *p)
 }
 
 - (void) postProcess:(GDInstallJob *)job
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    if (![gUnpackLock tryLock]) {
+        [self job:job state:GDJobUnpacking status:@"Waiting to unpack..."];
+        [gUnpackLock lock];
+    }
+    /* Whatever happens in there is this download's failure, not the end of
+     * the application: XADMaster and hdiutil both raise on input they cannot
+     * make sense of, and some of these archives are forty years old. */
+    NS_DURING
+        [self postProcessLocked:job];
+    NS_HANDLER
+        [self job:job state:GDJobFailed
+               status:[NSString stringWithFormat:@"Could not install this download (%@). "
+                                                  "It is in the Downloads folder.",
+                          [localException reason] ?: [localException name]]];
+        job->revealPath = [job->downloadPath retain];
+    NS_ENDHANDLER
+    [gUnpackLock unlock];
+    [pool release];
+}
+
+- (void) postProcessLocked:(GDInstallJob *)job
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     NSString *p = job->downloadPath, *md5;
@@ -1684,11 +1754,32 @@ static BOOL isDiskImage(NSString *p)
         LSRegisterURL((CFURLRef)[NSURL fileURLWithPath:job->launchPath], true);
     NSDictionary *old = [self libraryEntryForPath:[job->item path]];
     NSMutableDictionary *e = [NSMutableDictionary dictionary];
+    /* One title asked for whole: the parts add up rather than replace each
+     * other, and the entry keeps the file and the application the first of
+     * them installed. */
+    BOOL merge = job->batch != nil &&
+                 [[old objectForKey:@"batch"] isEqualToString:job->batch];
     [e setObject:[job->item path] forKey:@"path"];
     [e setObject:[job->item title] ?: @"" forKey:@"title"];
-    [e setObject:[job->file name] ?: @"" forKey:@"file"];
-    [e setObject:job->installed forKey:@"installed"];
-    if (job->launchPath)
+    [e setObject:(merge ? [old objectForKey:@"file"] : nil) ?: [job->file name] ?: @""
+          forKey:@"file"];
+    if (merge) {
+        NSMutableArray *all = [[[old objectForKey:@"installed"] mutableCopy] autorelease];
+        unsigned k;
+        if (all == nil)
+            all = [NSMutableArray array];
+        for (k = 0; k < [job->installed count]; k++)
+            if (![all containsObject:[job->installed objectAtIndex:k]])
+                [all addObject:[job->installed objectAtIndex:k]];
+        [e setObject:all forKey:@"installed"];
+    } else {
+        [e setObject:job->installed forKey:@"installed"];
+    }
+    if (job->batch)
+        [e setObject:job->batch forKey:@"batch"];
+    if (merge && [old objectForKey:@"launch"])
+        [e setObject:[old objectForKey:@"launch"] forKey:@"launch"];
+    else if (job->launchPath)
         [e setObject:job->launchPath forKey:@"launch"];
     [e setObject:[NSDate date] forKey:@"date"];
     if ([job->item thumbURL])
