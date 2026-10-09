@@ -11,6 +11,7 @@
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 #include <openssl/x509_vfy.h>
+#include <openssl/pem.h>
 
 /* What to do after an attempt that did not produce the site's answer. */
 enum { GDRestartNone = 0, GDRestartDirect, GDRestartRedirect, GDRestartAgain,
@@ -54,10 +55,75 @@ static int verifyAllowingExpiry(int preverified, X509_STORE_CTX *x)
     return 0;
 }
 
-static CURLcode installExpiryCallback(CURL *h, void *sslctx, void *ud)
+/* Issuers that servers ought to send and do not.
+ *
+ * A server hands over the intermediates between its certificate and a trusted
+ * root.  When one does not - macintoshgarden.org has served its leaf alone
+ * since renewing on 3 October 2026 - a browser quietly fetches the missing
+ * certificate from the address printed in the one it did send.  libcurl does
+ * not, so the site becomes unreachable with "unable to get local issuer
+ * certificate".  Resources/issuers.pem carries those certificates.
+ *
+ * Each one is checked here against the roots in cacert.pem and dropped unless
+ * it chains to one, so this cannot add trust that a public root does not
+ * already give: it only supplies a link the server left out. */
+static STACK_OF(X509) *gExtraIssuers;
+
+static void loadExtraIssuers(NSString *path, NSString *caBundle)
 {
-    (void)h; (void)ud;
-    SSL_CTX_set_verify((SSL_CTX *)sslctx, SSL_VERIFY_PEER, verifyAllowingExpiry);
+    X509_STORE *roots;
+    FILE *f;
+    X509 *cert;
+
+    if (path == nil || caBundle == nil)
+        return;
+    f = fopen([path fileSystemRepresentation], "r");
+    if (f == NULL)
+        return;
+    roots = X509_STORE_new();
+    if (roots == NULL || !X509_STORE_load_locations(roots, [caBundle fileSystemRepresentation], NULL)) {
+        if (roots) X509_STORE_free(roots);
+        fclose(f);
+        return;
+    }
+    while ((cert = PEM_read_X509(f, NULL, NULL, NULL)) != NULL) {
+        X509_STORE_CTX *ctx = X509_STORE_CTX_new();
+        int ok = 0;
+        if (ctx != NULL && X509_STORE_CTX_init(ctx, roots, cert, NULL))
+            ok = X509_verify_cert(ctx) == 1;
+        if (ctx != NULL)
+            X509_STORE_CTX_free(ctx);
+        if (ok) {
+            if (gExtraIssuers == NULL)
+                gExtraIssuers = sk_X509_new_null();
+            if (gExtraIssuers != NULL)
+                sk_X509_push(gExtraIssuers, cert);
+            else
+                X509_free(cert);
+        } else {
+            X509_free(cert);     /* nothing vouches for it: not ours to trust */
+        }
+    }
+    X509_STORE_free(roots);
+    fclose(f);
+}
+
+/* Runs for every connection: hands OpenSSL the issuers the server left out,
+ * and - only for a request that has asked for it - the callback that excuses
+ * an expired leaf. */
+static CURLcode prepareSSLContext(CURL *h, void *sslctx, void *ud)
+{
+    SSL_CTX *ctx = (SSL_CTX *)sslctx;
+    GDHTTPRequest *r = (GDHTTPRequest *)ud;
+    int i;
+    (void)h;
+    if (gExtraIssuers != NULL) {
+        X509_STORE *store = SSL_CTX_get_cert_store(ctx);
+        for (i = 0; i < sk_X509_num(gExtraIssuers); i++)
+            X509_STORE_add_cert(store, sk_X509_value(gExtraIssuers, i));
+    }
+    if (r != nil && [r usedExpiredCertificate])
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, verifyAllowingExpiry);
     return CURLE_OK;
 }
 
@@ -135,6 +201,13 @@ static void GDHTTPSetup(void)
                           stringByAppendingPathComponent:@"cacert.pem"];
         if ([[NSFileManager defaultManager] fileExistsAtPath:p])
             gCABundle = [p retain];
+    }
+    {
+        NSString *extra = [[NSBundle mainBundle] pathForResource:@"issuers" ofType:@"pem"];
+        if (extra == nil && gCABundle != nil)
+            extra = [[gCABundle stringByDeletingLastPathComponent]
+                        stringByAppendingPathComponent:@"issuers.pem"];
+        loadExtraIssuers(extra, gCABundle);
     }
 }
 
@@ -714,10 +787,8 @@ static int progress(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     curl_easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(h, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(h, CURLOPT_SSLVERSION, (long)CURL_SSLVERSION_TLSv1_2);
-    if (allowExpiredCert) {
-        curl_easy_setopt(h, CURLOPT_SSL_CTX_FUNCTION, installExpiryCallback);
-        curl_easy_setopt(h, CURLOPT_SSL_CTX_DATA, self);
-    }
+    curl_easy_setopt(h, CURLOPT_SSL_CTX_FUNCTION, prepareSSLContext);
+    curl_easy_setopt(h, CURLOPT_SSL_CTX_DATA, self);
     if (gCABundle != nil)
         curl_easy_setopt(h, CURLOPT_CAINFO, [gCABundle fileSystemRepresentation]);
     curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, progress);

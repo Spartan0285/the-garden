@@ -89,7 +89,7 @@ $(BUILD)/i386/gdtool: $(BUILD)/i386/gdtool.o $(CORE_i386)
 
 $(BUILD)/gdtool: $(patsubst %,$(BUILD)/%/gdtool,$(ARCHS))
 	$(LIPO) -create $^ -output $@
-	cp Resources/cacert.pem $(BUILD)/
+	cp Resources/cacert.pem Resources/issuers.pem $(BUILD)/
 
 tool: $(BUILD)/gdtool
 
@@ -103,13 +103,13 @@ $(BUILD)/i386/$(EXEC): $(APP_i386) $(CORE_i386)
 $(BUILD)/$(EXEC): $(patsubst %,$(BUILD)/%/$(EXEC),$(ARCHS))
 	$(LIPO) -create $^ -output $@
 
-app: $(BUILD)/$(EXEC) Resources/Info.plist Resources/cacert.pem
+app: $(BUILD)/$(EXEC) Resources/Info.plist Resources/cacert.pem Resources/issuers.pem
 	@rm -rf "$(APP)"
 	@mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	@cp $(BUILD)/$(EXEC) "$(APP)/Contents/MacOS/$(EXEC)"
 	@sed -e 's/@VERSION@/$(VERSION)/g' -e 's/@BUILD@/$(BUILD_NUMBER)/g' -e 's/@STAGE@/$(STAGE)/g' Resources/Info.plist > "$(APP)/Contents/Info.plist"
 	@printf 'APPLGdnX' > "$(APP)/Contents/PkgInfo"
-	@cp Resources/cacert.pem Resources/*.plist "$(APP)/Contents/Resources/" 2>/dev/null; true
+	@cp Resources/cacert.pem Resources/issuers.pem Resources/*.plist "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@rm -f "$(APP)/Contents/Resources/Info.plist"
 	@cp Resources/*.icns Resources/*.txt "$(APP)/Contents/Resources/" 2>/dev/null; true
 	@# Named, not Resources/*.png: the 1024px icon artwork stays out of the bundle.
