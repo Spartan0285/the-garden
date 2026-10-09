@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>version</key>
-	<string>0.3.10 Alpha</string>
+	<string>0.3.11 Alpha</string>
 	<key>build</key>
-	<string>17</string>
+	<string>18</string>
 	<key>url</key>
-	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.10/TheGarden-0.3.10.zip</string>
+	<string>https://github.com/Spartan0285/the-garden/releases/download/v0.3.11/TheGarden-0.3.11.zip</string>
 	<key>sha256</key>
-	<string>d09d844584606a8a76dc0f93bc9702c17dc8da831da543d687f84c1e082c9780</string>
+	<string>dea2ad640b4a0861f0b3af070445de658a1675bef614d1515f9b33a76b237259</string>
 	<key>size</key>
-	<string>7043707</string>
+	<string>7045969</string>
 	<key>minimumSystemVersion</key>
 	<string>10.4</string>
 	<key>notes</key>
-	<string>Reaches the Macintosh Garden again. The site has been serving an incomplete certificate chain since 3 October, which stopped every copy with "SSL certificate problem: unable to get local issuer certificate"; the app now supplies the missing issuer itself.</string>
+	<string>Fixes a crash when several downloads were installing at once: a disk image that would not open could take the whole app down. Unpacking now happens one download at a time, and anything that goes wrong in it fails that download instead of the app. New: "Get All N Downloads" in the Get menu queues every file of a title together.</string>
 	<key>signature</key>
-	<string>xVScH+/rRpResCN35UK7g/C6IQVm6SWKYrLypkzpMpczL0DjCWndIff6O35chM+ycmhOtgq7KrFCCCr8+BGjAg==</string>
+	<string>Buu38G0znlGPRVsHWiKVAkxZYRdFJw+oL4133QrLGI+sLXIgqo7JAJepKEz6vIEHorVk9UmXbit1IF4Qz2zSAA==</string>
 </dict>
 </plist>
